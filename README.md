@@ -8,6 +8,6 @@ A practice repository for opening your first pull request.
 2. Make a small change
 3. Open a pull request
 
-## Contibuting
+## Contributing
 
 We welcome contributions! Please open an issue before submitting a pull request.
