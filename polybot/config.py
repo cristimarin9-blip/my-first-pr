@@ -151,10 +151,17 @@ class WebConfig:
     # the bot runs. Mobile-friendly -- open it from any browser, PC or phone.
     enabled: bool = True
     # 127.0.0.1 = this machine only. Set to 0.0.0.0 to reach it from other
-    # devices on your network (e.g. your phone) -- the dashboard is
-    # unauthenticated and read-only, so only expose it on networks you trust.
+    # devices on your network (e.g. your phone) -- only expose it on networks
+    # you trust (see `controls_enabled` below).
     host: str = "127.0.0.1"
     port: int = 8080
+    # Allow action buttons in the dashboard (Halt / Resume / Refresh
+    # leaderboard). Actions are CSRF-protected by a per-run token embedded in
+    # the page -- a malicious website can't read it, so it can't trigger
+    # actions. But anyone who can *load* the dashboard can act, so if you set
+    # host: 0.0.0.0 on an untrusted network, set this to false (or keep the
+    # dashboard behind an SSH tunnel / VPN).
+    controls_enabled: bool = True
 
 
 @dataclass
