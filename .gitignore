@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Local secrets and personal config -- never commit these
+.env
+config.yaml
+watchlist.json
+
+# Runtime state (paper portfolio, seen-trades cache, logs)
+data/

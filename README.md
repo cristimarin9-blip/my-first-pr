@@ -1,13 +1,442 @@
-# my-first-pr
+# Polymarket Copy-Trading Bot
 
-A practice repository for opening your first pull request.
+A copy-trading bot for [Polymarket](https://polymarket.com) that watches wallets you
+choose, filters them by performance criteria (win rate, trade count, volume,
+open-position count, ...), and mirrors their new trades into your own
+portfolio -- either as a **paper (simulated) trade** or a **real order** on
+Polymarket's order book.
 
-## Getting Started
+**Paper trading is the default.** Nothing touches real funds until you
+explicitly set `mode: live` in your config *and* provide a private key.
 
-1. Clone the repository
-2. Make a small change
-3. Open a pull request
+This project is inspired by the class of "copy-trading" bots (e.g. the
+`polygun`-style templates) that skim a percentage (often ~1%) off every
+copied trade as a service fee. **This bot does not do that.** There is no fee
+configuration anywhere in the codebase -- position sizing only ever accounts
+for your own risk limits (`sizing.*` in the config), never a cut for anyone
+else. See [No fees, anywhere](#no-fees-anywhere) below.
 
-## Contibuting
+## Features
 
-We welcome contributions! Please open an issue before submitting a pull request.
+- **Paper trading by default** -- a simulated wallet (starting balance,
+  slippage model, position/PnL tracking) persisted to a local JSON file, so
+  you can validate a strategy before risking real money.
+- **Live trading** -- switch to `mode: live` to place real limit/IOC orders
+  on Polymarket's CLOB via the official [`py-clob-client`](https://pypi.org/project/py-clob-client/) SDK.
+- **Leaderboard auto-watchlist** -- optionally scrape Polymarket's trader
+  leaderboard (by profit or volume, per category and time window) to
+  populate the candidate pool automatically (`leaderboard.*` in the config).
+- **Configurable trader filters** -- only copy wallets that meet your bar for:
+  - minimum number of trades
+  - minimum win rate
+  - minimum lifetime traded volume
+  - maximum number of concurrently open positions
+  - minimum average trade size (filters out dust/spam wallets)
+- **Optional consensus gate** -- only copy a BUY when at least X% of your
+  qualified top traders with a stake in that market are holding the same
+  outcome (`consensus.*` in the config). Exits are never blocked.
+- **Threshold strategy (second "tab")** -- independently of copy-trading,
+  watch specific markets and automatically buy an outcome the moment its
+  Yes/No probability reaches X%, with optional take-profit and stop-loss
+  exits (`threshold.*` in the config).
+- **Proportional position sizing** -- mirrors the *fraction of bankroll* a
+  trader committed to a trade (not the raw dollar amount), scaled by your own
+  `copy_ratio`, and capped by your own per-trade and total-exposure limits.
+- **Risk circuit breakers** -- a guard wrapped around every order from every
+  strategy: daily realized-loss halt, max buys/day, max spend/day, per-market
+  concentration cap, entry price band, and a file-based kill switch
+  (`touch data/HALT`) for instant manual halt. New exposure gets blocked;
+  exits always go through.
+- **Price-drift guard** -- skip copying a BUY when the market already moved
+  more than X bps above the source trader's fill price (don't chase).
+- **Trade journal + status** -- every executed trade is appended to a CSV
+  (strategy, source trader, market, price/size/notional) for later analysis,
+  and `python main.py --status` shows cash, positions with unrealized PnL,
+  and today's risk counters at a glance.
+- **Web dashboard with PnL charts** -- a mobile-friendly dashboard served
+  while the bot runs: PnL chart with selectable time periods (1H / 6H / 1D /
+  1W / 1M / ALL), stat tiles, open positions, recent trades, and today's
+  risk limits. Works in any browser -- desktop or phone -- with automatic
+  light/dark theme.
+- **Same code path for paper and live** -- the copy-engine only talks to a
+  `Broker` interface, so switching modes is a one-line config change.
+
+## How it works
+
+```
+watchlist (explicit wallets + optional JSON file)
+        |
+        v
+DataApiClient  --------->  trader stats (win rate, volume, open positions, ...)
+        |                          |
+        v                          v
+  passes_filters()?  ------ no --> skip wallet
+        | yes
+        v
+  new trades since last poll
+        |
+        v
+  compute_copy_size()  (proportional sizing, capped by your risk limits)
+        |
+        v
+  Broker.place_order()  --->  PaperBroker (simulated fill) or LiveBroker (real order)
+```
+
+## Project layout
+
+```
+polybot/
+  config.py          # config schema + loader (config.yaml + .env)
+  models.py           # Trade, Position, TraderStats, OrderResult, ...
+  data_client.py      # wraps Polymarket's public data-api (trades, positions, trader stats)
+  gamma_client.py     # wraps Polymarket's public Gamma API (market metadata/prices)
+  leaderboard.py      # scrapes the trader leaderboard to auto-populate the watchlist
+  trader_filter.py    # win-rate / volume / position-count filtering
+  consensus.py        # optional "X% of top traders agree" gate for BUYs
+  threshold_engine.py # standalone "buy when an outcome reaches X% chance" strategy
+  sizing.py           # proportional position sizing + risk caps
+  risk.py             # circuit breakers wrapped around every order (see below)
+  journal.py          # append-only CSV log of every executed trade
+  tracker.py          # periodic equity snapshots (the PnL chart's data)
+  web.py              # mobile-friendly dashboard: PnL chart, positions, limits
+  broker.py           # Broker interface shared by paper and live
+  paper_broker.py      # simulated broker, no real funds, no fees
+  live_broker.py       # real orders via py-clob-client, no fees
+  copy_engine.py       # polling loop that ties it all together
+  cli.py / main.py     # entrypoint
+tests/                # unit tests (filters, sizing, paper broker, engine, config)
+config.example.yaml   # copy to config.yaml
+.env.example          # copy to .env (secrets only, never commit)
+watchlist.example.json
+```
+
+## Setup
+
+```bash
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+
+cp config.example.yaml config.yaml
+cp .env.example .env
+```
+
+`config.yaml` and `.env` are git-ignored -- put your personal settings and
+secrets there, not in the example files.
+
+### Choosing who to copy
+
+Add wallet addresses either directly under `target_wallets` in `config.yaml`,
+or in a JSON array file referenced by `watchlist_file` (see
+`watchlist.example.json`). Every candidate wallet still has to pass the
+`filters` section before it's actually copied -- the watchlist is just the
+pool of *candidates*, not a guarantee they'll be traded.
+
+**Or let the leaderboard scraper populate it for you:**
+
+```yaml
+leaderboard:
+  enabled: true
+  category: OVERALL    # or POLITICS, SPORTS, CRYPTO, ECONOMICS, TECH, ...
+  time_period: MONTH   # DAY, WEEK, MONTH, ALL
+  order_by: PNL        # rank by profit, or VOL for volume
+  top_n: 25            # API max is 50
+  refresh_hours: 24
+```
+
+This pulls the top traders from Polymarket's public leaderboard API
+(`data-api.polymarket.com/v1/leaderboard`), merges them with your static
+watchlist (deduped), and caches the result in
+`data/leaderboard_watchlist.json` so it only re-fetches every
+`refresh_hours` (falling back to the cached list if the API is down).
+Leaderboard wallets get no special treatment: they still must pass your
+`filters` before a single trade is copied. Preview what it fetches with:
+
+```bash
+python main.py --refresh-leaderboard
+```
+
+A tip on choosing `order_by`: `PNL` finds profitable traders, but a lucky
+whale can top it with one giant win; your `min_trades`/`min_win_rate`
+filters are what separate consistent traders from one-hit wonders, so keep
+them strict when auto-populating.
+
+### Paper trading (default)
+
+```bash
+python main.py --once     # one evaluation pass, useful for testing/cron
+python main.py             # runs forever, polling every `engine.poll_interval_seconds`
+```
+
+Your simulated portfolio (cash balance, open positions, realized PnL) is
+stored in `data/paper_state.json` (path configurable). Delete that file to
+reset the paper account back to `paper.starting_balance_usd`.
+
+### Live trading
+
+1. Set `mode: live` in `config.yaml`.
+2. Put your wallet's private key in `.env` as `POLYMARKET_PRIVATE_KEY`
+   (and `POLYMARKET_FUNDER_ADDRESS` if you trade through a Polymarket
+   email/Magic or browser-proxy wallet rather than a plain EOA -- see
+   `live.signature_type` in `config.example.yaml`).
+3. Set `live.assumed_bankroll_usd` to roughly what you've funded your wallet
+   with (used as a sizing fallback if the on-chain balance query fails).
+4. `python main.py`
+
+Live orders are IOC ("fill-and-kill") limit orders priced at the source
+trade's price plus `live.slippage_bps` of buffer, sized by the same
+`sizing.*` rules as paper mode. **Start with small `sizing.max_position_usd`
+and `sizing.max_total_exposure_usd` values and watch it for a while before
+trusting it with meaningful size.**
+
+### Consensus gate (optional)
+
+Set `consensus.enabled: true` to require agreement among your qualified
+traders before a BUY is copied:
+
+```yaml
+consensus:
+  enabled: true
+  min_agreement: 0.6   # >=60% of opinionated qualified traders must hold the same outcome
+  min_traders: 2       # at least 2 qualified traders must have a stake in the market
+```
+
+"Opinionated" means a qualified trader currently holds *any* outcome token in
+the trade's market; "agreement" means holding the *same* outcome the trade
+bought. The trader whose trade triggered the check always counts as agreeing
+(their trade is their stance), which is why `min_traders: 2` is the sensible
+floor -- it means at least one *other* qualified trader must have skin in that
+market before consensus can pass. SELLs are never blocked: when the trader
+you copy exits, the bot mirrors the exit regardless of what everyone else
+holds, since refusing to exit only adds risk.
+
+### Threshold strategy (optional)
+
+A second strategy that runs alongside copy-trading in the same process,
+against the same (paper or live) broker:
+
+```yaml
+threshold:
+  enabled: true
+  markets: ["0xabc123..."]     # Gamma condition IDs of markets to watch
+  trigger_probability: 0.90    # buy an outcome when Yes OR No reaches this chance
+  max_entry_probability: 0.98  # ...but not above this (no payoff left to capture)
+  order_usd: 10.0              # fixed dollar amount per entry
+  take_profit_probability: 0.99  # sell when the position reaches this chance (0 = off)
+  stop_loss_probability: 0.50    # sell if it falls back to this chance (0 = off)
+```
+
+On Polymarket, an outcome's share price *is* its implied probability, so
+"reaches a 90% chance" means "the Yes (or No) share trades at $0.90". For
+each watched market, whichever outcome hits `trigger_probability` first gets
+bought once (tracked in `data/threshold_state.json`, so a market never
+re-fires -- including after an exit). Positions opened by this strategy --
+and only those -- are then watched for the take-profit / stop-loss exits.
+Markets are identified by their Gamma **condition ID**, which you can get
+from `https://gamma-api.polymarket.com/markets?slug=<market-slug>` (the slug
+is in the market's polymarket.com URL).
+
+Note the trade-off this strategy makes: near-certain outcomes have tiny
+payoffs (buying at 90¢ to win $1 risks 90¢ to gain 10¢), so a single wrong
+market can erase many wins -- that's exactly what `stop_loss_probability`
+is there to cap. Paper-trade it first.
+
+### Risk circuit breakers
+
+Every order from every strategy passes through `RiskGuardedBroker`
+(`risk.*` in the config, on by default). It blocks new BUYs when a limit is
+hit; SELLs are always allowed through, even while halted -- a safety system
+that refuses to let you exit would itself be a risk.
+
+| Breaker | Config key | Default |
+|---|---|---|
+| Entry price band | `min_buy_price` / `max_buy_price` | 0.03 / 0.97 |
+| Per-market concentration cap | `max_market_exposure_usd` | $150 |
+| Max entries per day | `max_buys_per_day` | 50 |
+| Max spend per day | `max_buy_notional_per_day_usd` | $250 |
+| Daily realized-loss halt | `daily_loss_limit_usd` | $100 |
+| Don't-chase drift guard | `max_price_drift_bps` | off (200 suggested) |
+| Manual kill switch | `kill_switch_file` | `data/HALT` |
+
+The price band exists because both tails are traps: longshots under 3% are
+usually longshots for a reason, and near-certainties above 97% risk a lot to
+win almost nothing. The drift guard protects the core weakness of all
+copy-trading -- by the time you see a good trader's fill, the price may have
+already followed them; buying the top of that move systematically worsens
+your entry versus theirs. Daily counters reset at local midnight and survive
+restarts (`data/risk_state.json`). The kill switch is just a file:
+`touch data/HALT` stops all new exposure immediately without killing the
+process, `rm data/HALT` resumes.
+
+### Web dashboard (PnL charts, PC & phone)
+
+While the bot runs it serves a read-only dashboard (on by default at
+`http://127.0.0.1:8080`):
+
+- **PnL chart** with time-period buttons -- 1H / 6H / 1D / 1W / 1M / ALL --
+  showing profit/loss relative to the start of the selected window, with a
+  crosshair tooltip (tap or hover) for exact values.
+- Stat tiles (equity, cash, realized PnL, open positions), today's risk
+  limits, open positions, and recent trades.
+- **Responsive and theme-aware**: lays out for phone screens and follows
+  your system's light/dark setting automatically, so it looks right on a
+  desktop monitor and an Android phone alike.
+
+The chart's data comes from equity snapshots the bot records every
+`engine.equity_snapshot_minutes` (default 5) into `data/equity_history.json`
+-- it fills in as the bot runs.
+
+**Opening it from your phone:** set `web.host: 0.0.0.0` in `config.yaml`,
+then browse to `http://<machine-ip>:8080` from a phone on the same network
+(find the machine's IP with `ip addr` / `ipconfig`). For access from
+anywhere, put it behind a VPN like Tailscale or WireGuard rather than
+exposing the port to the internet -- the dashboard is read-only and never
+shows keys, but it is unauthenticated by design. If you host with Docker
+Compose, add `ports: ["8080:8080"]` to the service and set `web.host:
+0.0.0.0`.
+
+### Near-certainty preset (entries above 90%)
+
+To restrict the whole bot -- both strategies -- to high-probability entries,
+use the risk price band (this is how `config.example.yaml` ships):
+
+```yaml
+risk:
+  min_buy_price: 0.90   # only enter outcomes already priced >= 90%
+  max_buy_price: 0.98   # but don't chase above 98% -- almost no payoff left
+threshold:
+  trigger_probability: 0.90
+```
+
+Copied trades below 90% get skipped automatically. Keep in mind the
+asymmetry this strategy carries: entries in the 90-98% band win small
+amounts often and lose big rarely (a 93¢ entry that resolves NO costs ~9
+wins' worth of profit), which is exactly why `daily_loss_limit_usd` and
+`stop_loss_probability` matter more here, not less.
+
+### Tracking: trade journal and --status
+
+Every executed trade is appended to `data/trade_journal.csv` with timestamp,
+strategy (`copy` / `threshold`), source (the copied wallet, or the threshold
+entry/exit reason), market, side, price, size, and notional -- ready for a
+spreadsheet or pandas to compute your own realized win rate and per-trader
+attribution. For a live snapshot:
+
+```bash
+python main.py --status
+```
+
+prints mode, cash, realized PnL, each open position with its current market
+price and unrealized PnL (when the price API is reachable), and today's
+risk counters (buys used, notional spent, realized PnL, halt/kill-switch
+state).
+
+## No fees, anywhere
+
+Every order this bot places -- in either mode -- uses exactly the size
+computed by `sizing.compute_copy_size`. Nothing in this codebase deducts a
+percentage, adds a `fee_rate_bps`, or routes any part of a trade elsewhere.
+`tests/test_paper_broker.py::test_no_fee_is_ever_charged` and
+`tests/test_config.py::test_no_fee_field_exists_anywhere_in_config` exist
+specifically to catch a regression here. (Polymarket's own protocol-level
+maker/taker mechanics, if any apply to your order, are outside this bot's
+control.)
+
+## Hosting / running 24-7
+
+The bot is a single long-running process (`python main.py`) that polls on an
+interval and keeps its state in `./data` -- so it needs a machine that stays
+on, and that `data/` directory must persist across restarts. Three
+ready-made options are included:
+
+**Docker Compose (recommended, works on any VPS or home server):**
+
+```bash
+cp config.example.yaml config.yaml && cp .env.example .env   # then edit both
+docker compose up -d --build
+docker compose logs -f            # watch it run
+```
+
+State lives in the `polybot-data` named volume, so `docker compose restart`
+or host reboots (via `restart: unless-stopped`) don't lose your paper
+portfolio or re-copy old trades.
+
+**systemd on a bare VPS (no Docker):** see the setup commands in the header
+of [`deploy/polybot.service`](deploy/polybot.service). Logs go to
+`journalctl -u polybot -f`.
+
+**QNAP (or other NAS) via Container Station:** an always-on NAS is the
+zero-cost host. Enable Container Station, then over SSH:
+
+```bash
+git clone <your-repo> /share/Container/polybot && cd /share/Container/polybot
+cp config.example.yaml config.yaml && cp .env.example .env   # edit both
+docker compose up -d --build
+```
+
+Two QNAP-specific gotchas:
+
+- **Port 8080 is taken** -- QTS uses it for its own admin UI. Set
+  `web.port: 8090` in `config.yaml` and map it in `docker-compose.yml`
+  (`ports: ["8090:8090"]`, plus `web.host: 0.0.0.0`) so the dashboard is
+  reachable at `http://<nas-ip>:8090` from your PC and phone on the LAN.
+- **Never expose the NAS to the internet** (no UPnP, no port forwarding for
+  the dashboard or QTS) -- NAS devices are a favorite ransomware target, and
+  in live mode this box holds your wallet key. For access away from home,
+  use the NAS through a VPN (QNAP's QVPN, Tailscale, or WireGuard).
+
+Old 32-bit ARM models may lack a usable Docker; anything x86 or arm64 with
+Container Station is fine. `restart: unless-stopped` in the compose file
+brings the bot back automatically after firmware-update reboots.
+
+**Just a terminal (quick and dirty):** `nohup python main.py &` or run it
+inside `tmux`/`screen`. Fine for trying paper mode, not for anything you
+want to survive a reboot.
+
+Any $4-6/month VPS (Hetzner, DigitalOcean, Lightsail, ...) or an
+always-on home machine/Raspberry Pi is plenty -- the bot is just polling
+HTTP APIs, so CPU/RAM needs are minimal. Platforms like Fly.io or Railway
+also work (run it as a background worker with a persistent volume mounted at
+`/app/data`). What does NOT work is anything serverless/ephemeral (Lambda,
+plain GitHub Actions cron) -- the process needs to stay up and keep its
+local state.
+
+If you run **live mode** on a server, treat the box as holding your wallet
+key: `chmod 600 .env`, keep the system patched, don't reuse that key for
+anything holding more funds than the bot needs, and prefer a dedicated
+wallet funded with only your trading bankroll.
+
+## Configuration reference
+
+See `config.example.yaml` for the full, commented list of options:
+`filters.*` (who qualifies to be copied), `sizing.*` (how much to copy and
+your risk caps), `paper.*` (simulated broker settings), `live.*` (real
+broker settings), and `engine.*` (poll interval, state file locations).
+
+## Testing
+
+```bash
+pip install -r requirements.txt
+pytest
+```
+
+Tests cover the filter logic, position sizing math, the paper broker's
+accounting (including the no-fee guarantee above), and the copy-engine's
+polling/dedup behavior, all without hitting the network. The live broker
+(`py-clob-client` integration) is not covered by automated tests since it
+requires a funded wallet and places real orders -- test it yourself against a
+small amount before relying on it.
+
+## Important disclaimers
+
+- **This is not financial advice, and it is not audited or battle-tested
+  against real funds.** Read the code before trusting it with money.
+- Past performance of a copied trader (win rate, volume, etc.) does not
+  guarantee future results.
+- Polymarket's data-api and Gamma API used here (`data_client.py`,
+  `gamma_client.py`) are public but **undocumented and unofficial**; their
+  response shapes may change without notice. `LiveBroker` uses the official
+  `py-clob-client` SDK for order placement/signing.
+- Trading on Polymarket may be restricted or illegal in your jurisdiction.
+  You are responsible for complying with local laws and Polymarket's own
+  terms of service.
+- Never commit your `.env` file or private key.

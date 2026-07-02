@@ -1,0 +1,32 @@
+# Systemd unit for running polybot directly on a Linux VPS (no Docker).
+#
+# Setup:
+#   sudo useradd --system --home /opt/polybot polybot
+#   sudo git clone <your-repo> /opt/polybot
+#   cd /opt/polybot && sudo -u polybot python3 -m venv .venv && sudo -u polybot .venv/bin/pip install -r requirements.txt
+#   (create config.yaml and .env in /opt/polybot; chmod 600 .env)
+#   sudo cp deploy/polybot.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now polybot
+#
+# Logs: journalctl -u polybot -f   (plus data/trades.log)
+
+[Unit]
+Description=Polymarket copy-trading bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=polybot
+WorkingDirectory=/opt/polybot
+ExecStart=/opt/polybot/.venv/bin/python main.py
+Restart=on-failure
+RestartSec=10
+# Hardening: the bot only needs to read its config and write ./data
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/polybot/data
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

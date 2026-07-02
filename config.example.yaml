@@ -1,0 +1,138 @@
+# Copy this file to config.yaml and adjust to taste.
+# Everything here can also be overridden by environment variables (see .env.example)
+# for secrets like private keys.
+
+# --- Mode -------------------------------------------------------------
+# "paper"  -> simulated trading against a virtual bankroll (default, safe, no wallet needed)
+# "live"   -> real orders placed on Polymarket's CLOB with your funds
+mode: paper
+
+# --- Bankroll -----------------------------------------------------------
+paper:
+  starting_balance_usd: 1000.0
+  state_file: data/paper_state.json
+  slippage_bps: 25          # simulated slippage added on top of the last traded price
+
+live:
+  clob_host: https://clob.polymarket.com
+  chain_id: 137             # Polygon mainnet
+  signature_type: 0         # 0 = EOA/MetaMask, 1 = email/Magic wallet, 2 = browser proxy wallet
+  slippage_bps: 50          # limit price buffer so FAK orders actually cross the book
+  # Used only as a fallback bankroll figure for position sizing if the live
+  # USDC balance can't be queried automatically. Set to what you've funded
+  # your Polymarket wallet with.
+  assumed_bankroll_usd: 0.0
+
+# --- Who to copy ----------------------------------------------------------
+# Explicit list of wallet addresses to copy. Leave empty to only rely on
+# `watchlist_file` below. Every candidate (from either source) still has to
+# pass the `filters` section to actually be copied.
+target_wallets: []
+
+# Optional JSON file with a larger list of candidate wallets to evaluate
+# against `filters` below, e.g. traders you found on the Polymarket
+# leaderboard/activity feed. See watchlist.example.json.
+watchlist_file: watchlist.example.json
+
+# --- Leaderboard auto-watchlist ----------------------------------------------
+# Automatically pull top traders from Polymarket's leaderboard into the
+# candidate pool. They are merged with target_wallets/watchlist_file and,
+# like every candidate, still have to pass `filters` below to be copied.
+# Preview what it fetches with: python main.py --refresh-leaderboard
+leaderboard:
+  enabled: false
+  category: OVERALL      # OVERALL, POLITICS, SPORTS, ESPORTS, CRYPTO, CULTURE, MENTIONS, WEATHER, ECONOMICS, TECH, FINANCE
+  time_period: MONTH     # DAY, WEEK, MONTH, ALL
+  order_by: PNL          # PNL (profit) or VOL (volume)
+  top_n: 25              # API maximum is 50
+  refresh_hours: 24      # how often to re-fetch; cached in between
+  cache_file: data/leaderboard_watchlist.json
+
+# --- Trader qualification filters -----------------------------------------
+# A candidate wallet is only copied if it passes ALL of these.
+filters:
+  min_trades: 30            # minimum number of resolved/closed trades on record
+  min_win_rate: 0.55         # fraction of closed positions that were profitable
+  min_volume_usd: 5000.0     # lifetime traded notional
+  max_open_positions: 40     # skip wallets that are spread across too many markets
+  min_avg_trade_usd: 10.0    # ignore dust/spam traders
+
+# --- Consensus gate ---------------------------------------------------------
+# Optionally require agreement among your qualified top traders before
+# copying a BUY. "Agreement" means holding the same outcome token in the
+# same market. SELLs (exits) are never blocked by this gate.
+consensus:
+  enabled: false
+  min_agreement: 0.6   # at least this fraction of opinionated qualified traders must be on the same outcome
+  min_traders: 2       # at least this many qualified traders must have a stake in the market at all
+
+# --- Threshold strategy ------------------------------------------------------
+# Second strategy that runs alongside copy-trading (same broker, same
+# paper/live mode): watch specific markets and automatically BUY an outcome
+# (Yes or No, whichever gets there first) the moment its probability reaches
+# `trigger_probability`. Positions opened by this strategy are then managed
+# with the take-profit / stop-loss rules below.
+threshold:
+  enabled: false
+  markets: []                  # Gamma condition IDs of markets to watch, e.g. ["0xabc123..."]
+  trigger_probability: 0.90    # enter when Yes OR No reaches this chance
+  max_entry_probability: 0.98  # ...but not if it's already above this (no payoff left)
+  order_usd: 10.0              # fixed dollar amount per entry
+  take_profit_probability: 0.99  # sell when the position reaches this chance (0 = disabled)
+  stop_loss_probability: 0.50    # sell if it falls back to this chance (0 = disabled)
+  state_file: data/threshold_state.json
+
+# --- Risk circuit breakers ----------------------------------------------------
+# Enforced on EVERY order from every strategy. BUYs (new exposure) get
+# blocked when a limit is hit; SELLs (exits) are always allowed through.
+# Check the current counters any time with: python main.py --status
+risk:
+  enabled: true
+  # Near-certainty preset: only ever ENTER outcomes already priced above 90%
+  # (applies to every strategy -- copied trades below 90% get skipped too).
+  # Lower min_buy_price (e.g. 0.03) if you also want mid-range entries.
+  min_buy_price: 0.90
+  max_buy_price: 0.98               # but don't chase above 98% -- no payoff left
+  max_market_exposure_usd: 150.0    # cap on cost basis in any single market
+  max_buys_per_day: 50
+  max_buy_notional_per_day_usd: 250.0
+  daily_loss_limit_usd: 100.0       # halt new BUYs for the day once realized loss hits this (0 = off)
+  # Skip copying a BUY if the market already moved more than this many basis
+  # points above the source trader's fill price -- don't chase. (0 = off)
+  max_price_drift_bps: 200
+  # `touch data/HALT` to instantly block all new BUYs without stopping the
+  # bot (exits keep working); delete the file to resume.
+  kill_switch_file: data/HALT
+  state_file: data/risk_state.json
+
+# --- Position sizing --------------------------------------------------------
+sizing:
+  # We mirror the % of the trader's own bankroll that they committed to a
+  # trade, scaled by this ratio, applied to OUR bankroll.
+  copy_ratio: 0.25
+  max_position_usd: 100.0
+  max_total_exposure_usd: 500.0
+  min_order_usd: 1.0        # Polymarket's own minimum order size
+
+# --- Engine -----------------------------------------------------------------
+engine:
+  poll_interval_seconds: 30
+  trade_lookback_seconds: 3600   # ignore trades older than this on first sight
+  seen_trades_file: data/seen_trades.json
+  log_file: data/trades.log
+  journal_file: data/trade_journal.csv   # CSV log of every executed trade
+  equity_file: data/equity_history.json  # time series behind the PnL chart
+  equity_snapshot_minutes: 5             # how often a chart point is recorded
+
+# --- Web dashboard ------------------------------------------------------------
+# Mobile-friendly dashboard with the PnL chart (1H/6H/1D/1W/1M/ALL), open
+# positions, recent trades, and today's risk counters. Served while the bot
+# runs; open http://<host>:<port> in any browser (PC or phone).
+web:
+  enabled: true
+  # Bare metal: 127.0.0.1 = this machine only; 0.0.0.0 = reachable from your
+  # network (trusted networks only -- the dashboard is unauthenticated).
+  # Under Docker: set 0.0.0.0 here and control exposure with the `ports`
+  # mapping in docker-compose.yml instead (see the comment there).
+  host: 127.0.0.1
+  port: 8080
