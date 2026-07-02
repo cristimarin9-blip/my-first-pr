@@ -364,6 +364,30 @@ portfolio or re-copy old trades.
 of [`deploy/polybot.service`](deploy/polybot.service). Logs go to
 `journalctl -u polybot -f`.
 
+**QNAP (or other NAS) via Container Station:** an always-on NAS is the
+zero-cost host. Enable Container Station, then over SSH:
+
+```bash
+git clone <your-repo> /share/Container/polybot && cd /share/Container/polybot
+cp config.example.yaml config.yaml && cp .env.example .env   # edit both
+docker compose up -d --build
+```
+
+Two QNAP-specific gotchas:
+
+- **Port 8080 is taken** -- QTS uses it for its own admin UI. Set
+  `web.port: 8090` in `config.yaml` and map it in `docker-compose.yml`
+  (`ports: ["8090:8090"]`, plus `web.host: 0.0.0.0`) so the dashboard is
+  reachable at `http://<nas-ip>:8090` from your PC and phone on the LAN.
+- **Never expose the NAS to the internet** (no UPnP, no port forwarding for
+  the dashboard or QTS) -- NAS devices are a favorite ransomware target, and
+  in live mode this box holds your wallet key. For access away from home,
+  use the NAS through a VPN (QNAP's QVPN, Tailscale, or WireGuard).
+
+Old 32-bit ARM models may lack a usable Docker; anything x86 or arm64 with
+Container Station is fine. `restart: unless-stopped` in the compose file
+brings the bot back automatically after firmware-update reboots.
+
 **Just a terminal (quick and dirty):** `nohup python main.py &` or run it
 inside `tmux`/`screen`. Fine for trying paper mode, not for anything you
 want to survive a reboot.
