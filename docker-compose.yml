@@ -4,9 +4,10 @@ services:
     container_name: polybot
     restart: unless-stopped
     volumes:
-      # your local config + secrets, mounted read-only
-      - ./config.yaml:/app/config.yaml:ro
-      - ./.env:/app/.env:ro
+      # config + secrets. Writable so the dashboard Settings tab can save
+      # changes back to them (config.yaml on save, .env on a live-mode switch).
+      - ./config.yaml:/app/config.yaml
+      - ./.env:/app/.env
       # persistent state: paper portfolio, seen-trades cache, threshold state, logs
       - polybot-data:/app/data
     ports:

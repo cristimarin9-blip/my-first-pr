@@ -8,12 +8,20 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from polybot.broker import Broker
-from polybot.config import Config
 from polybot.risk import RiskGuardedBroker
-from polybot.tracker import EquityTracker
 
 log = logging.getLogger(__name__)
+
+
+def tail_file(path: str, limit: int = 200) -> list[str]:
+    p = Path(path)
+    if not p.exists():
+        return []
+    try:
+        with p.open(errors="replace") as f:
+            return [line.rstrip("\n") for line in f.readlines()[-limit:]]
+    except OSError:
+        return []
 
 
 def build_summary(config: Config, broker: Broker) -> dict:
@@ -69,11 +77,9 @@ class DashboardServer:
     network. It never exposes keys -- only portfolio state.
     """
 
-    def __init__(self, config: Config, broker: Broker, tracker: EquityTracker):
+    def __init__(self, runtime):
         server_self = self
-        self.config = config
-        self.broker = broker
-        self.tracker = tracker
+        self.runtime = runtime
         # Per-run secret embedded in the page. Same-origin policy stops other
         # sites from reading it, so it doubles as a CSRF token for actions.
         self.control_token = secrets.token_urlsafe(16)
@@ -82,7 +88,10 @@ class DashboardServer:
             return (
                 DASHBOARD_HTML
                 .replace("__CONTROL_TOKEN__", server_self.control_token)
-                .replace("__CONTROLS_ENABLED__", "true" if config.web.controls_enabled else "false")
+                .replace(
+                    "__CONTROLS_ENABLED__",
+                    "true" if server_self.runtime.config.web.controls_enabled else "false",
+                )
                 .encode()
             )
 
@@ -103,17 +112,22 @@ class DashboardServer:
 
             def do_GET(self):
                 try:
+                    rt = server_self.runtime
                     path = self.path.split("?", 1)[0]
                     if path == "/":
                         self._send(200, "text/html; charset=utf-8", render_page())
                     elif path == "/api/summary":
-                        self._send_json(build_summary(server_self.config, server_self.broker))
+                        summary = build_summary(rt.config, rt.broker)
+                        summary["paused"] = rt.is_paused()
+                        self._send_json(summary)
                     elif path == "/api/equity":
-                        self._send_json(server_self.tracker.get_points())
+                        self._send_json(rt.tracker.get_points())
                     elif path == "/api/journal":
-                        self._send_json(
-                            load_journal_rows(server_self.config.engine.journal_file)
-                        )
+                        self._send_json(load_journal_rows(rt.config.engine.journal_file))
+                    elif path == "/api/config":
+                        self._send_json(rt.editable_config())
+                    elif path == "/api/logs":
+                        self._send_json({"lines": tail_file(rt.config.engine.log_file, 200)})
                     else:
                         self._send(404, "text/plain", b"not found")
                 except BrokenPipeError:
@@ -131,7 +145,7 @@ class DashboardServer:
                     if path != "/api/action":
                         self._send(404, "text/plain", b"not found")
                         return
-                    if not server_self.config.web.controls_enabled:
+                    if not server_self.runtime.config.web.controls_enabled:
                         self._send_json({"ok": False, "error": "controls are disabled in config"}, 403)
                         return
                     token = self.headers.get("X-Polybot-Token", "")
@@ -144,7 +158,7 @@ class DashboardServer:
                         payload = json.loads(raw or b"{}")
                     except ValueError:
                         payload = {}
-                    result = server_self.do_action(str(payload.get("action", "")))
+                    result = server_self.runtime.dispatch(str(payload.get("action", "")), payload)
                     self._send_json(result, 200 if result.get("ok") else 400)
                 except BrokenPipeError:
                     pass
@@ -155,41 +169,10 @@ class DashboardServer:
                     except Exception:
                         pass
 
-        self.httpd = ThreadingHTTPServer((config.web.host, config.web.port), Handler)
+        self.httpd = ThreadingHTTPServer(
+            (runtime.config.web.host, runtime.config.web.port), Handler
+        )
         self.httpd.daemon_threads = True
-
-    def do_action(self, action: str) -> dict:
-        """Execute a dashboard control action. Returns {"ok": bool, ...}."""
-        kill_file = Path(self.config.risk.kill_switch_file)
-        if action in ("halt", "resume") and not self.config.risk.enabled:
-            return {"ok": False, "error": "risk guard is disabled, so the kill switch has no effect"}
-
-        if action == "halt":
-            kill_file.parent.mkdir(parents=True, exist_ok=True)
-            kill_file.touch()
-            log.warning("dashboard: HALT engaged via kill switch (%s)", kill_file)
-            return {"ok": True, "message": "Halted -- new buys blocked. Exits still allowed."}
-
-        if action == "resume":
-            try:
-                kill_file.unlink()
-            except FileNotFoundError:
-                pass
-            log.info("dashboard: kill switch cleared, trading resumed")
-            return {"ok": True, "message": "Resumed -- new buys allowed again."}
-
-        if action == "refresh_leaderboard":
-            if not self.config.leaderboard.enabled:
-                return {"ok": False, "error": "leaderboard is disabled in config"}
-            from polybot.leaderboard import LeaderboardClient, LeaderboardWatchlist
-
-            watchlist = LeaderboardWatchlist(
-                self.config.leaderboard, LeaderboardClient(self.config.data_api_url)
-            )
-            wallets = watchlist.get_wallets(force_refresh=True)
-            return {"ok": True, "message": f"Leaderboard refreshed: {len(wallets)} wallet(s) cached."}
-
-        return {"ok": False, "error": f"unknown action: {action!r}"}
 
     @property
     def port(self) -> int:
@@ -198,7 +181,8 @@ class DashboardServer:
     def start_background(self) -> None:
         thread = threading.Thread(target=self.httpd.serve_forever, daemon=True, name="dashboard")
         thread.start()
-        log.info("dashboard: http://%s:%d", self.config.web.host, self.port)
+        cfg = self.runtime.config.web
+        log.info("dashboard: http://%s:%d", cfg.host, self.port)
 
     def stop(self) -> None:
         self.httpd.shutdown()
@@ -265,6 +249,39 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   .actions button:disabled { opacity: .5; cursor: default; }
   .actions button.danger { color: var(--bad); border-color: var(--bad); }
   #action-note { font-size: 12px; margin-top: 10px; min-height: 16px; }
+  .tabs { display: flex; gap: 6px; margin-bottom: 14px; flex-wrap: wrap; }
+  .tabs button {
+    font: inherit; color: var(--ink-2); background: transparent;
+    border: 1px solid var(--border); border-radius: 999px;
+    padding: 8px 16px; min-height: 40px; cursor: pointer;
+  }
+  .tabs button[aria-selected="true"] { color: var(--ink); border-color: var(--ink-2); font-weight: 600; }
+  .panel { display: none; } .panel.active { display: block; }
+  fieldset { border: 1px solid var(--border); border-radius: 10px; margin: 0 0 12px; padding: 12px 14px; }
+  legend { font-size: 12px; font-weight: 600; color: var(--ink-2); padding: 0 6px;
+           text-transform: capitalize; }
+  .field { display: flex; align-items: center; justify-content: space-between;
+           gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--grid); }
+  .field:last-child { border-bottom: 0; }
+  .field label { color: var(--ink-2); font-size: 13px; }
+  .field input[type=number], .field input[type=text], .field select {
+    font: inherit; color: var(--ink); background: var(--page);
+    border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px;
+    min-height: 40px; width: 160px; max-width: 46vw;
+  }
+  .field input[type=checkbox] { width: 22px; height: 22px; }
+  textarea {
+    font: 13px/1.4 ui-monospace, monospace; color: var(--ink); background: var(--page);
+    border: 1px solid var(--border); border-radius: 8px; padding: 10px; width: 100%;
+    min-height: 90px; resize: vertical;
+  }
+  #logs { font: 12px/1.5 ui-monospace, monospace; white-space: pre; margin: 0;
+          max-height: 60vh; overflow: auto; color: var(--ink-2); }
+  .hint { color: var(--muted); font-size: 12px; margin: 2px 0 10px; }
+  .savebar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .savebar button { font: inherit; color: #fff; background: var(--series); border: 0;
+    border-radius: 999px; padding: 11px 22px; min-height: 44px; cursor: pointer; font-weight: 600; }
+  .savebar button:disabled { opacity: .5; cursor: default; }
   #chartbox { position: relative; }
   #chart { display: block; width: 100%; height: 260px; touch-action: pan-y; }
   #tip { position: absolute; pointer-events: none; display: none;
@@ -291,41 +308,76 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 </head>
 <body>
 <div class="wrap">
-  <header><h1>polybot</h1><span id="mode">&hellip;</span></header>
+  <header><h1>polybot</h1><span id="mode">&hellip;</span><span id="paused-badge"></span></header>
 
-  <div class="tiles">
-    <div class="tile"><div class="label">Equity</div><div class="value" id="equity">&ndash;</div>
-      <div class="delta" id="equity-delta"></div></div>
-    <div class="tile"><div class="label">Cash</div><div class="value" id="cash">&ndash;</div></div>
-    <div class="tile"><div class="label">Realized PnL</div><div class="value" id="rpnl">&ndash;</div></div>
-    <div class="tile"><div class="label">Open positions</div><div class="value" id="npos">&ndash;</div>
-      <div class="delta" id="exposure"></div></div>
+  <div class="tabs" role="tablist">
+    <button id="tab-overview" role="tab" aria-selected="true" type="button">Overview</button>
+    <button id="tab-settings" role="tab" aria-selected="false" type="button">Settings</button>
+    <button id="tab-logs" role="tab" aria-selected="false" type="button">Logs</button>
   </div>
 
-  <div class="card" id="controls">
-    <h2>Controls</h2>
-    <div class="actions">
-      <button id="btn-halt" class="danger" type="button">Halt trading</button>
-      <button id="btn-resume" type="button">Resume</button>
-      <button id="btn-refresh" type="button">Refresh leaderboard</button>
+  <!-- OVERVIEW ------------------------------------------------------------- -->
+  <div class="panel active" id="panel-overview">
+    <div class="tiles">
+      <div class="tile"><div class="label">Equity</div><div class="value" id="equity">&ndash;</div>
+        <div class="delta" id="equity-delta"></div></div>
+      <div class="tile"><div class="label">Cash</div><div class="value" id="cash">&ndash;</div></div>
+      <div class="tile"><div class="label">Realized PnL</div><div class="value" id="rpnl">&ndash;</div></div>
+      <div class="tile"><div class="label">Open positions</div><div class="value" id="npos">&ndash;</div>
+        <div class="delta" id="exposure"></div></div>
     </div>
-    <div id="action-note"></div>
+
+    <div class="card" id="controls">
+      <h2>Controls</h2>
+      <div class="actions">
+        <button id="btn-halt" class="danger" type="button">Halt trading</button>
+        <button id="btn-resume" type="button">Resume</button>
+        <button id="btn-pause" type="button">Pause polling</button>
+        <button id="btn-unpause" type="button">Resume polling</button>
+        <button id="btn-poll" type="button">Poll now</button>
+        <button id="btn-refresh" type="button">Refresh leaderboard</button>
+        <button id="btn-reset" class="danger" type="button">Reset paper</button>
+      </div>
+      <div id="action-note"></div>
+    </div>
+
+    <div class="card">
+      <h2>PnL</h2>
+      <div class="ranges" id="ranges" role="group" aria-label="Time period"></div>
+      <div id="chartbox">
+        <svg id="chart" role="img" aria-label="PnL over selected period"></svg>
+        <div id="tip"><div class="v"></div><div class="t"></div></div>
+        <div id="empty">No history yet &mdash; the chart fills in as the bot runs.</div>
+      </div>
+    </div>
+
+    <div class="card"><h2>Today's limits</h2><div class="scroll"><table id="risk"></table></div></div>
+    <div class="card"><h2>Open positions</h2><div class="scroll"><table id="positions"></table></div></div>
+    <div class="card"><h2>Recent trades</h2><div class="scroll"><table id="trades"></table></div></div>
+    <footer>auto-refreshes every 30s</footer>
   </div>
 
-  <div class="card">
-    <h2>PnL</h2>
-    <div class="ranges" id="ranges" role="group" aria-label="Time period"></div>
-    <div id="chartbox">
-      <svg id="chart" role="img" aria-label="PnL over selected period"></svg>
-      <div id="tip"><div class="v"></div><div class="t"></div></div>
-      <div id="empty">No history yet &mdash; the chart fills in as the bot runs.</div>
+  <!-- SETTINGS ------------------------------------------------------------- -->
+  <div class="panel" id="panel-settings">
+    <div class="card">
+      <h2>Settings</h2>
+      <p class="hint">Changes save to config.yaml and apply immediately &mdash; no restart needed.</p>
+      <div id="settings-form"></div>
+      <div class="savebar">
+        <button id="btn-save" type="button">Save &amp; apply</button>
+        <button id="btn-reload" type="button" style="background:transparent;color:var(--ink-2);border:1px solid var(--border)">Reload from disk</button>
+        <span id="save-note"></span>
+      </div>
     </div>
   </div>
 
-  <div class="card"><h2>Today's limits</h2><div class="scroll"><table id="risk"></table></div></div>
-  <div class="card"><h2>Open positions</h2><div class="scroll"><table id="positions"></table></div></div>
-  <div class="card"><h2>Recent trades</h2><div class="scroll"><table id="trades"></table></div></div>
-  <footer>auto-refreshes every 30s</footer>
+  <!-- LOGS ----------------------------------------------------------------- -->
+  <div class="panel" id="panel-logs">
+    <div class="card">
+      <h2>Logs</h2>
+      <pre id="logs">&hellip;</pre>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -569,6 +621,10 @@ async function refresh() {
     el("npos").textContent = String(summary.positions.length);
     el("exposure").textContent = "exposure " + fmtUsd(summary.exposure);
 
+    const pb = el("paused-badge");
+    pb.textContent = summary.paused ? "paused" : "";
+    pb.className = summary.paused ? "neg" : "";
+
     if (summary.risk) {
       const k = summary.risk;
       fillTable("risk", ["", "used", "limit"], [
@@ -600,11 +656,12 @@ async function refresh() {
   } catch (e) { /* keep previous render on transient errors */ }
 }
 
-async function doAction(action, btn, confirmMsg) {
-  if (!CONTROLS_ENABLED) return;
-  if (confirmMsg && !window.confirm(confirmMsg)) return;
-  const note = el("action-note");
-  const buttons = document.querySelectorAll(".actions button");
+async function doAction(action, opts) {
+  opts = opts || {};
+  if (!CONTROLS_ENABLED) return { ok: false };
+  if (opts.confirm && !window.confirm(opts.confirm)) return { ok: false };
+  const note = el(opts.noteId || "action-note");
+  const buttons = document.querySelectorAll(".actions button, .savebar button");
   buttons.forEach((b) => (b.disabled = true));
   note.textContent = "Working\\u2026";
   note.className = "";
@@ -612,15 +669,17 @@ async function doAction(action, btn, confirmMsg) {
     const r = await fetch("/api/action", {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Polybot-Token": CONTROL_TOKEN },
-      body: JSON.stringify({ action }),
+      body: JSON.stringify(Object.assign({ action }, opts.body || {})),
     });
     const j = await r.json();
     note.textContent = j.ok ? j.message : "Error: " + (j.error || "failed");
     note.className = j.ok ? "pos" : "neg";
     await refresh();
+    return j;
   } catch (e) {
     note.textContent = "Error: " + e;
     note.className = "neg";
+    return { ok: false };
   } finally {
     buttons.forEach((b) => (b.disabled = false));
   }
@@ -629,16 +688,190 @@ async function doAction(action, btn, confirmMsg) {
 function setupControls() {
   if (!CONTROLS_ENABLED) {
     el("controls").style.display = "none";
+    el("panel-settings").innerHTML =
+      '<div class="card"><p class="hint">Controls are disabled (web.controls_enabled: false).</p></div>';
     return;
   }
-  el("btn-halt").addEventListener("click", (e) =>
-    doAction("halt", e.target, "Halt trading? New buys will be blocked until you resume (open positions can still be sold)."));
-  el("btn-resume").addEventListener("click", (e) => doAction("resume", e.target));
-  el("btn-refresh").addEventListener("click", (e) => doAction("refresh_leaderboard", e.target));
+  el("btn-halt").addEventListener("click", () =>
+    doAction("halt", { confirm: "Halt trading? New buys blocked until you resume; open positions can still be sold." }));
+  el("btn-resume").addEventListener("click", () => doAction("resume"));
+  el("btn-pause").addEventListener("click", () => doAction("pause"));
+  el("btn-unpause").addEventListener("click", () => doAction("unpause"));
+  el("btn-poll").addEventListener("click", () => doAction("poll_now"));
+  el("btn-refresh").addEventListener("click", () => doAction("refresh_leaderboard"));
+  el("btn-reset").addEventListener("click", () =>
+    doAction("reset_paper", { confirm: "Reset the paper portfolio back to its starting balance? This clears simulated positions and cash." }));
+}
+
+// --- tabs -------------------------------------------------------------------
+function setupTabs() {
+  const tabs = [
+    ["tab-overview", "panel-overview"],
+    ["tab-settings", "panel-settings"],
+    ["tab-logs", "panel-logs"],
+  ];
+  for (const [tabId, panelId] of tabs) {
+    el(tabId).addEventListener("click", () => {
+      for (const [t, p] of tabs) {
+        const active = t === tabId;
+        el(t).setAttribute("aria-selected", String(active));
+        el(p).classList.toggle("active", active);
+      }
+      if (panelId === "panel-settings") loadSettings();
+      if (panelId === "panel-logs") loadLogs();
+    });
+  }
+}
+
+// --- settings form ----------------------------------------------------------
+let settingsMeta = null;
+
+function inputFor(value, path) {
+  let node;
+  if (typeof value === "boolean") {
+    node = document.createElement("input");
+    node.type = "checkbox";
+    node.checked = value;
+  } else if (typeof value === "number") {
+    node = document.createElement("input");
+    node.type = "number";
+    node.step = Number.isInteger(value) ? "1" : "any";
+    node.value = String(value);
+  } else {
+    node = document.createElement("input");
+    node.type = "text";
+    node.value = value == null ? "" : String(value);
+  }
+  node.dataset.path = path;
+  node.dataset.type = typeof value === "number" ? (Number.isInteger(value) ? "int" : "float") : typeof value;
+  return node;
+}
+
+function fieldRow(labelText, inputNode) {
+  const row = document.createElement("div");
+  row.className = "field";
+  const label = document.createElement("label");
+  label.textContent = labelText;
+  row.appendChild(label);
+  row.appendChild(inputNode);
+  return row;
+}
+
+async function loadSettings() {
+  if (!CONTROLS_ENABLED) return;
+  const cfg = await fetch("/api/config").then((r) => r.json());
+  settingsMeta = cfg;
+  const form = el("settings-form");
+  form.innerHTML = "";
+
+  // Mode + wallets first.
+  const top = document.createElement("fieldset");
+  top.innerHTML = "<legend>general</legend>";
+  const modeSel = document.createElement("select");
+  for (const m of ["paper", "live"]) {
+    const o = document.createElement("option");
+    o.value = m; o.textContent = m;
+    if (m === cfg.mode) o.selected = true;
+    modeSel.appendChild(o);
+  }
+  modeSel.id = "set-mode";
+  top.appendChild(fieldRow("mode", modeSel));
+  const keyInput = document.createElement("input");
+  keyInput.type = "password"; keyInput.id = "set-key";
+  keyInput.placeholder = "unchanged";
+  top.appendChild(fieldRow("live private key", keyInput));
+  const keyHint = document.createElement("p");
+  keyHint.className = "hint";
+  keyHint.textContent = "Only needed for live mode. Write-only \\u2014 never shown back. Leave blank to keep the current key.";
+  top.appendChild(keyHint);
+  form.appendChild(top);
+
+  const wallets = document.createElement("fieldset");
+  wallets.innerHTML = "<legend>watchlist wallets</legend>";
+  const ta = document.createElement("textarea");
+  ta.id = "set-wallets";
+  ta.value = (cfg.target_wallets || []).join("\\n");
+  ta.placeholder = "0x... (one wallet address per line)";
+  wallets.appendChild(ta);
+  form.appendChild(wallets);
+
+  // One fieldset per config section.
+  for (const [section, fields] of Object.entries(cfg.sections)) {
+    const fs = document.createElement("fieldset");
+    const lg = document.createElement("legend");
+    lg.textContent = section;
+    fs.appendChild(lg);
+    for (const [name, value] of Object.entries(fields)) {
+      if (Array.isArray(value)) {
+        const t = document.createElement("textarea");
+        t.dataset.path = section + "." + name;
+        t.dataset.type = "list";
+        t.value = value.join("\\n");
+        const row = document.createElement("div");
+        const lbl = document.createElement("label");
+        lbl.textContent = name; lbl.style.display = "block"; lbl.style.margin = "6px 0 4px";
+        lbl.style.color = "var(--ink-2)"; lbl.style.fontSize = "13px";
+        row.appendChild(lbl); row.appendChild(t);
+        fs.appendChild(row);
+      } else {
+        fs.appendChild(fieldRow(name, inputFor(value, section + "." + name)));
+      }
+    }
+    form.appendChild(fs);
+  }
+}
+
+function collectSettings() {
+  const sections = {};
+  document.querySelectorAll("#settings-form [data-path]").forEach((node) => {
+    const [section, name] = node.dataset.path.split(".");
+    sections[section] = sections[section] || {};
+    const t = node.dataset.type;
+    let v;
+    if (t === "boolean") v = node.checked;
+    else if (t === "int") v = parseInt(node.value, 10);
+    else if (t === "float") v = parseFloat(node.value);
+    else if (t === "list") v = node.value.split("\\n").map((s) => s.trim()).filter(Boolean);
+    else v = node.value;
+    if ((t === "int" || t === "float") && Number.isNaN(v)) return;
+    sections[section][name] = v;
+  });
+  const wallets = el("set-wallets").value.split("\\n").map((s) => s.trim()).filter(Boolean);
+  const body = { mode: el("set-mode").value, target_wallets: wallets, sections };
+  const key = el("set-key").value.trim();
+  if (key) body.live_private_key = key;
+  return body;
+}
+
+function setupSettings() {
+  if (!CONTROLS_ENABLED) return;
+  el("btn-save").addEventListener("click", async () => {
+    const config = collectSettings();
+    const confirmMsg = config.mode === "live"
+      ? "Save settings and switch to LIVE mode? Real orders with real funds will be placed."
+      : null;
+    await doAction("save_config", { body: { config }, noteId: "save-note", confirm: confirmMsg });
+  });
+  el("btn-reload").addEventListener("click", async () => {
+    await doAction("reload", { noteId: "save-note" });
+    loadSettings();
+  });
+}
+
+// --- logs -------------------------------------------------------------------
+async function loadLogs() {
+  try {
+    const j = await fetch("/api/logs").then((r) => r.json());
+    const pre = el("logs");
+    pre.textContent = (j.lines || []).join("\\n") || "(no log output yet)";
+    pre.scrollTop = pre.scrollHeight;
+  } catch (e) { /* ignore */ }
 }
 
 buildRangeButtons();
+setupTabs();
 setupControls();
+setupSettings();
 refresh();
 setInterval(refresh, 30000);
 window.addEventListener("resize", () => drawChart());
