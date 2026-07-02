@@ -1,0 +1,60 @@
+# Copy this file to config.yaml and adjust to taste.
+# Everything here can also be overridden by environment variables (see .env.example)
+# for secrets like private keys.
+
+# --- Mode -------------------------------------------------------------
+# "paper"  -> simulated trading against a virtual bankroll (default, safe, no wallet needed)
+# "live"   -> real orders placed on Polymarket's CLOB with your funds
+mode: paper
+
+# --- Bankroll -----------------------------------------------------------
+paper:
+  starting_balance_usd: 1000.0
+  state_file: data/paper_state.json
+  slippage_bps: 25          # simulated slippage added on top of the last traded price
+
+live:
+  clob_host: https://clob.polymarket.com
+  chain_id: 137             # Polygon mainnet
+  signature_type: 0         # 0 = EOA/MetaMask, 1 = email/Magic wallet, 2 = browser proxy wallet
+  slippage_bps: 50          # limit price buffer so FAK orders actually cross the book
+  # Used only as a fallback bankroll figure for position sizing if the live
+  # USDC balance can't be queried automatically. Set to what you've funded
+  # your Polymarket wallet with.
+  assumed_bankroll_usd: 0.0
+
+# --- Who to copy ----------------------------------------------------------
+# Explicit list of wallet addresses to copy. Leave empty to only rely on
+# `watchlist_file` below. Every candidate (from either source) still has to
+# pass the `filters` section to actually be copied.
+target_wallets: []
+
+# Optional JSON file with a larger list of candidate wallets to evaluate
+# against `filters` below, e.g. traders you found on the Polymarket
+# leaderboard/activity feed. See watchlist.example.json.
+watchlist_file: watchlist.example.json
+
+# --- Trader qualification filters -----------------------------------------
+# A candidate wallet is only copied if it passes ALL of these.
+filters:
+  min_trades: 30            # minimum number of resolved/closed trades on record
+  min_win_rate: 0.55         # fraction of closed positions that were profitable
+  min_volume_usd: 5000.0     # lifetime traded notional
+  max_open_positions: 40     # skip wallets that are spread across too many markets
+  min_avg_trade_usd: 10.0    # ignore dust/spam traders
+
+# --- Position sizing --------------------------------------------------------
+sizing:
+  # We mirror the % of the trader's own bankroll that they committed to a
+  # trade, scaled by this ratio, applied to OUR bankroll.
+  copy_ratio: 0.25
+  max_position_usd: 100.0
+  max_total_exposure_usd: 500.0
+  min_order_usd: 1.0        # Polymarket's own minimum order size
+
+# --- Engine -----------------------------------------------------------------
+engine:
+  poll_interval_seconds: 30
+  trade_lookback_seconds: 3600   # ignore trades older than this on first sight
+  seen_trades_file: data/seen_trades.json
+  log_file: data/trades.log
