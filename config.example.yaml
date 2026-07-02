@@ -52,6 +52,22 @@ consensus:
   min_agreement: 0.6   # at least this fraction of opinionated qualified traders must be on the same outcome
   min_traders: 2       # at least this many qualified traders must have a stake in the market at all
 
+# --- Threshold strategy ------------------------------------------------------
+# Second strategy that runs alongside copy-trading (same broker, same
+# paper/live mode): watch specific markets and automatically BUY an outcome
+# (Yes or No, whichever gets there first) the moment its probability reaches
+# `trigger_probability`. Positions opened by this strategy are then managed
+# with the take-profit / stop-loss rules below.
+threshold:
+  enabled: false
+  markets: []                  # Gamma condition IDs of markets to watch, e.g. ["0xabc123..."]
+  trigger_probability: 0.90    # enter when Yes OR No reaches this chance
+  max_entry_probability: 0.98  # ...but not if it's already above this (no payoff left)
+  order_usd: 10.0              # fixed dollar amount per entry
+  take_profit_probability: 0.99  # sell when the position reaches this chance (0 = disabled)
+  stop_loss_probability: 0.50    # sell if it falls back to this chance (0 = disabled)
+  state_file: data/threshold_state.json
+
 # --- Position sizing --------------------------------------------------------
 sizing:
   # We mirror the % of the trader's own bankroll that they committed to a

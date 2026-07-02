@@ -32,6 +32,10 @@ else. See [No fees, anywhere](#no-fees-anywhere) below.
 - **Optional consensus gate** -- only copy a BUY when at least X% of your
   qualified top traders with a stake in that market are holding the same
   outcome (`consensus.*` in the config). Exits are never blocked.
+- **Threshold strategy (second "tab")** -- independently of copy-trading,
+  watch specific markets and automatically buy an outcome the moment its
+  Yes/No probability reaches X%, with optional take-profit and stop-loss
+  exits (`threshold.*` in the config).
 - **Proportional position sizing** -- mirrors the *fraction of bankroll* a
   trader committed to a trade (not the raw dollar amount), scaled by your own
   `copy_ratio`, and capped by your own per-trade and total-exposure limits.
@@ -69,6 +73,7 @@ polybot/
   gamma_client.py     # wraps Polymarket's public Gamma API (market metadata/prices)
   trader_filter.py    # win-rate / volume / position-count filtering
   consensus.py        # optional "X% of top traders agree" gate for BUYs
+  threshold_engine.py # standalone "buy when an outcome reaches X% chance" strategy
   sizing.py           # proportional position sizing + risk caps
   broker.py           # Broker interface shared by paper and live
   paper_broker.py      # simulated broker, no real funds, no fees
@@ -153,6 +158,37 @@ floor -- it means at least one *other* qualified trader must have skin in that
 market before consensus can pass. SELLs are never blocked: when the trader
 you copy exits, the bot mirrors the exit regardless of what everyone else
 holds, since refusing to exit only adds risk.
+
+### Threshold strategy (optional)
+
+A second strategy that runs alongside copy-trading in the same process,
+against the same (paper or live) broker:
+
+```yaml
+threshold:
+  enabled: true
+  markets: ["0xabc123..."]     # Gamma condition IDs of markets to watch
+  trigger_probability: 0.90    # buy an outcome when Yes OR No reaches this chance
+  max_entry_probability: 0.98  # ...but not above this (no payoff left to capture)
+  order_usd: 10.0              # fixed dollar amount per entry
+  take_profit_probability: 0.99  # sell when the position reaches this chance (0 = off)
+  stop_loss_probability: 0.50    # sell if it falls back to this chance (0 = off)
+```
+
+On Polymarket, an outcome's share price *is* its implied probability, so
+"reaches a 90% chance" means "the Yes (or No) share trades at $0.90". For
+each watched market, whichever outcome hits `trigger_probability` first gets
+bought once (tracked in `data/threshold_state.json`, so a market never
+re-fires -- including after an exit). Positions opened by this strategy --
+and only those -- are then watched for the take-profit / stop-loss exits.
+Markets are identified by their Gamma **condition ID**, which you can get
+from `https://gamma-api.polymarket.com/markets?slug=<market-slug>` (the slug
+is in the market's polymarket.com URL).
+
+Note the trade-off this strategy makes: near-certain outcomes have tiny
+payoffs (buying at 90¢ to win $1 risks 90¢ to gain 10¢), so a single wrong
+market can erase many wins -- that's exactly what `stop_loss_probability`
+is there to cap. Paper-trade it first.
 
 ## No fees, anywhere
 

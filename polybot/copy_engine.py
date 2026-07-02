@@ -143,17 +143,3 @@ class CopyEngine:
             log.warning("failed to copy trade %s from %s: %s", trade.trade_id, trade.trader, result.error)
         return result.success
 
-    def run_forever(self) -> None:
-        log.info(
-            "copy-engine starting in %s mode, polling every %ss",
-            "PAPER" if self.config.is_paper else "LIVE",
-            self.config.engine.poll_interval_seconds,
-        )
-        while True:
-            try:
-                n = self.poll_once()
-                if n:
-                    log.info("copied %d new trade(s) this pass", n)
-            except Exception:
-                log.exception("unexpected error during poll, continuing")
-            time.sleep(self.config.engine.poll_interval_seconds)

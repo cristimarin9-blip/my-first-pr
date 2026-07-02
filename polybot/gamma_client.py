@@ -42,6 +42,29 @@ class GammaClient:
             return None
         return raw[0]
 
+    def get_market_tokens(self, condition_id: str) -> list[tuple[str, str, float]]:
+        """All outcome tokens for a market as (token_id, outcome_name, price) tuples.
+
+        Price is the outcome's current probability in [0, 1]. Returns [] if the
+        market can't be fetched or its fields don't parse.
+        """
+        market = self.get_market_by_condition_id(condition_id)
+        if not market:
+            return []
+        try:
+            token_ids = json.loads(market.get("clobTokenIds", "[]"))
+            outcomes = json.loads(market.get("outcomes", "[]"))
+            prices = json.loads(market.get("outcomePrices", "[]"))
+        except (TypeError, ValueError):
+            return []
+        tokens = []
+        for tid, outcome, price in zip(token_ids, outcomes, prices):
+            try:
+                tokens.append((str(tid), str(outcome), float(price)))
+            except (TypeError, ValueError):
+                continue
+        return tokens
+
     def get_token_price(self, condition_id: str, token_id: str) -> float | None:
         """Best-effort last/mid price for a specific outcome token, in [0, 1]."""
         market = self.get_market_by_condition_id(condition_id)

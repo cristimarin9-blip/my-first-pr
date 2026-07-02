@@ -3,11 +3,13 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+import time
 
 from polybot.broker import Broker
 from polybot.config import Config
 from polybot.copy_engine import CopyEngine
 from polybot.logging_setup import setup_logging
+from polybot.threshold_engine import ThresholdEngine
 
 log = logging.getLogger(__name__)
 
@@ -21,6 +23,26 @@ def build_broker(config: Config) -> Broker:
     from polybot.live_broker import LiveBroker
 
     return LiveBroker(config.live)
+
+
+def build_engines(config: Config, broker: Broker) -> list:
+    """One engine per enabled strategy, all sharing the same broker."""
+    engines: list = [CopyEngine(config, broker)]
+    if config.threshold.enabled:
+        engines.append(ThresholdEngine(config.threshold, broker))
+    return engines
+
+
+def run_loop(engines: list, interval_seconds: int) -> None:
+    while True:
+        for engine in engines:
+            try:
+                n = engine.poll_once()
+                if n:
+                    log.info("%s: %d action(s) this pass", type(engine).__name__, n)
+            except Exception:
+                log.exception("unexpected error in %s, continuing", type(engine).__name__)
+        time.sleep(interval_seconds)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -40,19 +62,24 @@ def main(argv: list[str] | None = None) -> int:
             "*** LIVE MODE *** this will place real orders with real funds using the "
             "wallet behind POLYMARKET_PRIVATE_KEY. Ctrl-C within 5s to abort."
         )
-        import time
-
         time.sleep(5)
 
     broker = build_broker(config)
-    engine = CopyEngine(config, broker)
+    engines = build_engines(config, broker)
+    log.info(
+        "starting in %s mode with strategies: %s",
+        "PAPER" if config.is_paper else "LIVE",
+        ", ".join(type(e).__name__ for e in engines),
+    )
 
     if args.once:
-        n = engine.poll_once()
-        log.info("done: copied %d trade(s)", n)
+        total = 0
+        for engine in engines:
+            total += engine.poll_once()
+        log.info("done: %d action(s)", total)
         return 0
 
-    engine.run_forever()
+    run_loop(engines, config.engine.poll_interval_seconds)
     return 0
 
 

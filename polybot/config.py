@@ -60,6 +60,32 @@ class ConsensusConfig:
 
 
 @dataclass
+class ThresholdConfig:
+    # Standalone strategy (runs alongside copy-trading): watch a list of
+    # markets and automatically buy an outcome (Yes OR No) the moment its
+    # probability reaches `trigger_probability`.
+    enabled: bool = False
+    markets: list[str] = field(default_factory=list)  # Gamma condition IDs to watch
+    trigger_probability: float = 0.90
+    # Don't chase an outcome that already blew past the trigger -- above this
+    # there's almost no payoff left relative to the risk.
+    max_entry_probability: float = 0.98
+    order_usd: float = 10.0
+    # Exit rules for positions THIS strategy opened (0 disables either rule).
+    take_profit_probability: float = 0.99
+    stop_loss_probability: float = 0.50
+    state_file: str = "data/threshold_state.json"
+
+    def __post_init__(self) -> None:
+        if not 0.5 <= self.trigger_probability < 1.0:
+            raise ValueError("threshold.trigger_probability must be in [0.5, 1.0)")
+        if self.max_entry_probability < self.trigger_probability:
+            raise ValueError("threshold.max_entry_probability must be >= trigger_probability")
+        if self.stop_loss_probability >= self.trigger_probability and self.stop_loss_probability > 0:
+            raise ValueError("threshold.stop_loss_probability must be below trigger_probability")
+
+
+@dataclass
 class SizingConfig:
     copy_ratio: float = 0.25
     max_position_usd: float = 100.0
@@ -82,6 +108,7 @@ class Config:
     watchlist_file: str | None = None
     filters: FilterCriteria = field(default_factory=FilterCriteria)
     consensus: ConsensusConfig = field(default_factory=ConsensusConfig)
+    threshold: ThresholdConfig = field(default_factory=ThresholdConfig)
     sizing: SizingConfig = field(default_factory=SizingConfig)
     engine: EngineConfig = field(default_factory=EngineConfig)
     paper: PaperConfig = field(default_factory=PaperConfig)
@@ -110,6 +137,7 @@ class Config:
             watchlist_file=raw.get("watchlist_file"),
             filters=FilterCriteria(**raw.get("filters", {})),
             consensus=ConsensusConfig(**raw.get("consensus", {})),
+            threshold=ThresholdConfig(**raw.get("threshold", {})),
             sizing=SizingConfig(**raw.get("sizing", {})),
             engine=EngineConfig(**raw.get("engine", {})),
             paper=PaperConfig(**raw.get("paper", {})),
