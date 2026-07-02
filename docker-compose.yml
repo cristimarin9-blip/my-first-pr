@@ -9,6 +9,15 @@ services:
       - ./.env:/app/.env:ro
       # persistent state: paper portfolio, seen-trades cache, threshold state, logs
       - polybot-data:/app/data
+    ports:
+      # Dashboard, reachable only from the host itself (use an SSH tunnel:
+      #   ssh -L 8080:127.0.0.1:8080 user@server  ->  http://localhost:8080).
+      # Requires web.host: 0.0.0.0 in config.yaml when running under Docker --
+      # this mapping (not web.host) is what controls outside exposure.
+      # For phone access prefer a VPN (e.g. Tailscale) and bind that IP here,
+      # e.g. "100.x.y.z:8080:8080". Avoid a bare "8080:8080" on a public VPS:
+      # Docker's published ports bypass ufw/firewalld rules.
+      - "127.0.0.1:8080:8080"
 
 volumes:
   polybot-data:

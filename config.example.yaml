@@ -130,7 +130,9 @@ engine:
 # runs; open http://<host>:<port> in any browser (PC or phone).
 web:
   enabled: true
-  # 127.0.0.1 = this machine only. Set to 0.0.0.0 to open it from your phone
-  # on the same network. Read-only and unauthenticated -- trusted networks only.
+  # Bare metal: 127.0.0.1 = this machine only; 0.0.0.0 = reachable from your
+  # network (trusted networks only -- the dashboard is unauthenticated).
+  # Under Docker: set 0.0.0.0 here and control exposure with the `ports`
+  # mapping in docker-compose.yml instead (see the comment there).
   host: 127.0.0.1
   port: 8080
