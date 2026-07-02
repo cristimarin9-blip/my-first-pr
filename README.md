@@ -280,6 +280,11 @@ While the bot runs it serves a read-only dashboard (on by default at
 - **Responsive and theme-aware**: lays out for phone screens and follows
   your system's light/dark setting automatically, so it looks right on a
   desktop monitor and an Android phone alike.
+- **Action buttons**: Halt trading (engages the kill switch -- blocks new
+  buys, still allows exits), Resume, and Refresh leaderboard now. Actions
+  are CSRF-protected by a per-run token embedded in the page, so another
+  website can't trigger them; disable them with `web.controls_enabled:
+  false` if you expose the dashboard on an untrusted network.
 
 The chart's data comes from equity snapshots the bot records every
 `engine.equity_snapshot_minutes` (default 5) into `data/equity_history.json`

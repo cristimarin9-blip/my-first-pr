@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import json
 import logging
+import secrets
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -73,6 +74,17 @@ class DashboardServer:
         self.config = config
         self.broker = broker
         self.tracker = tracker
+        # Per-run secret embedded in the page. Same-origin policy stops other
+        # sites from reading it, so it doubles as a CSRF token for actions.
+        self.control_token = secrets.token_urlsafe(16)
+
+        def render_page() -> bytes:
+            return (
+                DASHBOARD_HTML
+                .replace("__CONTROL_TOKEN__", server_self.control_token)
+                .replace("__CONTROLS_ENABLED__", "true" if config.web.controls_enabled else "false")
+                .encode()
+            )
 
         class Handler(BaseHTTPRequestHandler):
             def log_message(self, fmt, *args):  # route access logs to our logger
@@ -86,14 +98,14 @@ class DashboardServer:
                 self.end_headers()
                 self.wfile.write(body)
 
-            def _send_json(self, payload) -> None:
-                self._send(200, "application/json", json.dumps(payload).encode())
+            def _send_json(self, payload, status: int = 200) -> None:
+                self._send(status, "application/json", json.dumps(payload).encode())
 
             def do_GET(self):
                 try:
                     path = self.path.split("?", 1)[0]
                     if path == "/":
-                        self._send(200, "text/html; charset=utf-8", DASHBOARD_HTML.encode())
+                        self._send(200, "text/html; charset=utf-8", render_page())
                     elif path == "/api/summary":
                         self._send_json(build_summary(server_self.config, server_self.broker))
                     elif path == "/api/equity":
@@ -113,8 +125,71 @@ class DashboardServer:
                     except Exception:
                         pass
 
+            def do_POST(self):
+                try:
+                    path = self.path.split("?", 1)[0]
+                    if path != "/api/action":
+                        self._send(404, "text/plain", b"not found")
+                        return
+                    if not server_self.config.web.controls_enabled:
+                        self._send_json({"ok": False, "error": "controls are disabled in config"}, 403)
+                        return
+                    token = self.headers.get("X-Polybot-Token", "")
+                    if not secrets.compare_digest(token, server_self.control_token):
+                        self._send_json({"ok": False, "error": "invalid or missing control token"}, 403)
+                        return
+                    length = int(self.headers.get("Content-Length", 0) or 0)
+                    raw = self.rfile.read(length) if length else b"{}"
+                    try:
+                        payload = json.loads(raw or b"{}")
+                    except ValueError:
+                        payload = {}
+                    result = server_self.do_action(str(payload.get("action", "")))
+                    self._send_json(result, 200 if result.get("ok") else 400)
+                except BrokenPipeError:
+                    pass
+                except Exception:
+                    log.exception("dashboard action failed: %s", self.path)
+                    try:
+                        self._send_json({"ok": False, "error": "internal error"}, 500)
+                    except Exception:
+                        pass
+
         self.httpd = ThreadingHTTPServer((config.web.host, config.web.port), Handler)
         self.httpd.daemon_threads = True
+
+    def do_action(self, action: str) -> dict:
+        """Execute a dashboard control action. Returns {"ok": bool, ...}."""
+        kill_file = Path(self.config.risk.kill_switch_file)
+        if action in ("halt", "resume") and not self.config.risk.enabled:
+            return {"ok": False, "error": "risk guard is disabled, so the kill switch has no effect"}
+
+        if action == "halt":
+            kill_file.parent.mkdir(parents=True, exist_ok=True)
+            kill_file.touch()
+            log.warning("dashboard: HALT engaged via kill switch (%s)", kill_file)
+            return {"ok": True, "message": "Halted -- new buys blocked. Exits still allowed."}
+
+        if action == "resume":
+            try:
+                kill_file.unlink()
+            except FileNotFoundError:
+                pass
+            log.info("dashboard: kill switch cleared, trading resumed")
+            return {"ok": True, "message": "Resumed -- new buys allowed again."}
+
+        if action == "refresh_leaderboard":
+            if not self.config.leaderboard.enabled:
+                return {"ok": False, "error": "leaderboard is disabled in config"}
+            from polybot.leaderboard import LeaderboardClient, LeaderboardWatchlist
+
+            watchlist = LeaderboardWatchlist(
+                self.config.leaderboard, LeaderboardClient(self.config.data_api_url)
+            )
+            wallets = watchlist.get_wallets(force_refresh=True)
+            return {"ok": True, "message": f"Leaderboard refreshed: {len(wallets)} wallet(s) cached."}
+
+        return {"ok": False, "error": f"unknown action: {action!r}"}
 
     @property
     def port(self) -> int:
@@ -180,6 +255,16 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     padding: 8px 14px; min-height: 40px; cursor: pointer;
   }
   .ranges button[aria-pressed="true"] { color: var(--ink); border-color: var(--ink-2); font-weight: 600; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .actions button {
+    font: inherit; color: var(--ink); background: transparent;
+    border: 1px solid var(--border); border-radius: 999px;
+    padding: 9px 16px; min-height: 42px; cursor: pointer;
+  }
+  .actions button:hover { border-color: var(--ink-2); }
+  .actions button:disabled { opacity: .5; cursor: default; }
+  .actions button.danger { color: var(--bad); border-color: var(--bad); }
+  #action-note { font-size: 12px; margin-top: 10px; min-height: 16px; }
   #chartbox { position: relative; }
   #chart { display: block; width: 100%; height: 260px; touch-action: pan-y; }
   #tip { position: absolute; pointer-events: none; display: none;
@@ -217,6 +302,16 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       <div class="delta" id="exposure"></div></div>
   </div>
 
+  <div class="card" id="controls">
+    <h2>Controls</h2>
+    <div class="actions">
+      <button id="btn-halt" class="danger" type="button">Halt trading</button>
+      <button id="btn-resume" type="button">Resume</button>
+      <button id="btn-refresh" type="button">Refresh leaderboard</button>
+    </div>
+    <div id="action-note"></div>
+  </div>
+
   <div class="card">
     <h2>PnL</h2>
     <div class="ranges" id="ranges" role="group" aria-label="Time period"></div>
@@ -235,6 +330,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
 <script>
 "use strict";
+const CONTROL_TOKEN = "__CONTROL_TOKEN__";
+const CONTROLS_ENABLED = __CONTROLS_ENABLED__;
 const PERIODS = [
   { label: "1H", s: 3600 }, { label: "6H", s: 6 * 3600 }, { label: "1D", s: 86400 },
   { label: "1W", s: 7 * 86400 }, { label: "1M", s: 30 * 86400 }, { label: "ALL", s: 0 },
@@ -503,7 +600,45 @@ async function refresh() {
   } catch (e) { /* keep previous render on transient errors */ }
 }
 
+async function doAction(action, btn, confirmMsg) {
+  if (!CONTROLS_ENABLED) return;
+  if (confirmMsg && !window.confirm(confirmMsg)) return;
+  const note = el("action-note");
+  const buttons = document.querySelectorAll(".actions button");
+  buttons.forEach((b) => (b.disabled = true));
+  note.textContent = "Working\\u2026";
+  note.className = "";
+  try {
+    const r = await fetch("/api/action", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Polybot-Token": CONTROL_TOKEN },
+      body: JSON.stringify({ action }),
+    });
+    const j = await r.json();
+    note.textContent = j.ok ? j.message : "Error: " + (j.error || "failed");
+    note.className = j.ok ? "pos" : "neg";
+    await refresh();
+  } catch (e) {
+    note.textContent = "Error: " + e;
+    note.className = "neg";
+  } finally {
+    buttons.forEach((b) => (b.disabled = false));
+  }
+}
+
+function setupControls() {
+  if (!CONTROLS_ENABLED) {
+    el("controls").style.display = "none";
+    return;
+  }
+  el("btn-halt").addEventListener("click", (e) =>
+    doAction("halt", e.target, "Halt trading? New buys will be blocked until you resume (open positions can still be sold)."));
+  el("btn-resume").addEventListener("click", (e) => doAction("resume", e.target));
+  el("btn-refresh").addEventListener("click", (e) => doAction("refresh_leaderboard", e.target));
+}
+
 buildRangeButtons();
+setupControls();
 refresh();
 setInterval(refresh, 30000);
 window.addEventListener("resize", () => drawChart());
