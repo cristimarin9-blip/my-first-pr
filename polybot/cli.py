@@ -7,37 +7,11 @@ import time
 
 from polybot.broker import Broker
 from polybot.config import Config
-from polybot.copy_engine import CopyEngine
-from polybot.journal import TradeJournal
 from polybot.logging_setup import setup_logging
 from polybot.risk import RiskGuardedBroker
-from polybot.threshold_engine import ThresholdEngine
+from polybot.runtime import BotRuntime, build_broker
 
 log = logging.getLogger(__name__)
-
-
-def build_broker(config: Config) -> Broker:
-    if config.is_paper:
-        from polybot.paper_broker import PaperBroker
-
-        broker: Broker = PaperBroker(config.paper)
-    else:
-        from polybot.live_broker import LiveBroker
-
-        broker = LiveBroker(config.live)
-
-    if config.risk.enabled:
-        broker = RiskGuardedBroker(broker, config.risk)
-    return broker
-
-
-def build_engines(config: Config, broker: Broker) -> list:
-    """One engine per enabled strategy, all sharing the same broker and journal."""
-    journal = TradeJournal(config.engine.journal_file)
-    engines: list = [CopyEngine(config, broker, journal=journal)]
-    if config.threshold.enabled:
-        engines.append(ThresholdEngine(config.threshold, broker, journal=journal))
-    return engines
 
 
 def print_status(config: Config, broker: Broker) -> None:
@@ -79,20 +53,6 @@ def print_status(config: Config, broker: Broker) -> None:
             print("!! HALTED for the day (daily loss limit hit) -- SELLs only")
         if s["kill_switch"]:
             print(f"!! KILL SWITCH active ({broker.config.kill_switch_file} exists) -- SELLs only")
-
-
-def run_loop(engines: list, interval_seconds: int, tracker=None, broker: Broker | None = None) -> None:
-    while True:
-        for engine in engines:
-            try:
-                n = engine.poll_once()
-                if n:
-                    log.info("%s: %d action(s) this pass", type(engine).__name__, n)
-            except Exception:
-                log.exception("unexpected error in %s, continuing", type(engine).__name__)
-        if tracker is not None and broker is not None:
-            tracker.maybe_snapshot(broker)
-        time.sleep(interval_seconds)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -141,35 +101,22 @@ def main(argv: list[str] | None = None) -> int:
         )
         time.sleep(5)
 
-    broker = build_broker(config)
-    engines = build_engines(config, broker)
-    log.info(
-        "starting in %s mode with strategies: %s",
-        "PAPER" if config.is_paper else "LIVE",
-        ", ".join(type(e).__name__ for e in engines),
-    )
+    runtime = BotRuntime(config, args.config, args.env)
 
     if args.once:
-        total = 0
-        for engine in engines:
-            total += engine.poll_once()
+        total = runtime.poll_once_all()
         log.info("done: %d action(s)", total)
         return 0
-
-    from polybot.tracker import EquityTracker
-
-    tracker = EquityTracker(config.engine.equity_file, config.engine.equity_snapshot_minutes)
-    tracker.maybe_snapshot(broker)  # seed the chart with a point at startup
 
     if config.web.enabled:
         from polybot.web import DashboardServer
 
         try:
-            DashboardServer(config, broker, tracker).start_background()
+            DashboardServer(runtime).start_background()
         except OSError as exc:
             log.warning("dashboard disabled, could not bind %s:%d: %s", config.web.host, config.web.port, exc)
 
-    run_loop(engines, config.engine.poll_interval_seconds, tracker, broker)
+    runtime.run_forever()
     return 0
 
 

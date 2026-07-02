@@ -280,11 +280,20 @@ While the bot runs it serves a read-only dashboard (on by default at
 - **Responsive and theme-aware**: lays out for phone screens and follows
   your system's light/dark setting automatically, so it looks right on a
   desktop monitor and an Android phone alike.
-- **Action buttons**: Halt trading (engages the kill switch -- blocks new
-  buys, still allows exits), Resume, and Refresh leaderboard now. Actions
-  are CSRF-protected by a per-run token embedded in the page, so another
-  website can't trigger them; disable them with `web.controls_enabled:
-  false` if you expose the dashboard on an untrusted network.
+- **Operate entirely from the dashboard** -- three tabs mean you never need
+  the terminal for day-to-day running:
+  - **Overview**: the PnL chart, stat tiles, positions, trades, and control
+    buttons (Halt/Resume the kill switch, Pause/Resume polling, Poll now,
+    Refresh leaderboard, Reset paper).
+  - **Settings**: a form for the whole config -- mode, watchlist wallets,
+    filters, sizing, risk limits, strategy toggles, leaderboard. Save writes
+    `config.yaml` and applies it live (no restart). Going live only needs the
+    private key, which you can paste into a write-only field here.
+  - **Logs**: the recent log output.
+  - All actions are CSRF-protected by a per-run token embedded in the page,
+    so another website can't trigger them; disable them entirely with
+    `web.controls_enabled: false` when exposing the dashboard on an untrusted
+    network.
 
 The chart's data comes from equity snapshots the bot records every
 `engine.equity_snapshot_minutes` (default 5) into `data/equity_history.json`
