@@ -201,6 +201,46 @@ specifically to catch a regression here. (Polymarket's own protocol-level
 maker/taker mechanics, if any apply to your order, are outside this bot's
 control.)
 
+## Hosting / running 24-7
+
+The bot is a single long-running process (`python main.py`) that polls on an
+interval and keeps its state in `./data` -- so it needs a machine that stays
+on, and that `data/` directory must persist across restarts. Three
+ready-made options are included:
+
+**Docker Compose (recommended, works on any VPS or home server):**
+
+```bash
+cp config.example.yaml config.yaml && cp .env.example .env   # then edit both
+docker compose up -d --build
+docker compose logs -f            # watch it run
+```
+
+State lives in the `polybot-data` named volume, so `docker compose restart`
+or host reboots (via `restart: unless-stopped`) don't lose your paper
+portfolio or re-copy old trades.
+
+**systemd on a bare VPS (no Docker):** see the setup commands in the header
+of [`deploy/polybot.service`](deploy/polybot.service). Logs go to
+`journalctl -u polybot -f`.
+
+**Just a terminal (quick and dirty):** `nohup python main.py &` or run it
+inside `tmux`/`screen`. Fine for trying paper mode, not for anything you
+want to survive a reboot.
+
+Any $4-6/month VPS (Hetzner, DigitalOcean, Lightsail, ...) or an
+always-on home machine/Raspberry Pi is plenty -- the bot is just polling
+HTTP APIs, so CPU/RAM needs are minimal. Platforms like Fly.io or Railway
+also work (run it as a background worker with a persistent volume mounted at
+`/app/data`). What does NOT work is anything serverless/ephemeral (Lambda,
+plain GitHub Actions cron) -- the process needs to stay up and keep its
+local state.
+
+If you run **live mode** on a server, treat the box as holding your wallet
+key: `chmod 600 .env`, keep the system patched, don't reuse that key for
+anything holding more funds than the bot needs, and prefer a dedicated
+wallet funded with only your trading bankroll.
+
 ## Configuration reference
 
 See `config.example.yaml` for the full, commented list of options:

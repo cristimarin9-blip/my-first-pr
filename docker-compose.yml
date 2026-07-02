@@ -1,0 +1,14 @@
+services:
+  polybot:
+    build: .
+    container_name: polybot
+    restart: unless-stopped
+    volumes:
+      # your local config + secrets, mounted read-only
+      - ./config.yaml:/app/config.yaml:ro
+      - ./.env:/app/.env:ro
+      # persistent state: paper portfolio, seen-trades cache, threshold state, logs
+      - polybot-data:/app/data
+
+volumes:
+  polybot-data:
