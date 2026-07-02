@@ -52,10 +52,28 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--once", action="store_true", help="run a single poll pass and exit (useful for testing/cron)"
     )
+    parser.add_argument(
+        "--refresh-leaderboard",
+        action="store_true",
+        help="force-refresh the leaderboard watchlist, print the wallets, and exit",
+    )
     args = parser.parse_args(argv)
 
     config = Config.load(args.config, args.env)
     setup_logging(config.engine.log_file)
+
+    if args.refresh_leaderboard:
+        from polybot.leaderboard import LeaderboardClient, LeaderboardWatchlist
+
+        watchlist = LeaderboardWatchlist(config.leaderboard, LeaderboardClient(config.data_api_url))
+        wallets = watchlist.get_wallets(force_refresh=True)
+        for wallet in wallets:
+            print(wallet)
+        log.info(
+            "%d wallet(s) cached to %s (they still must pass `filters` to be copied)",
+            len(wallets), config.leaderboard.cache_file,
+        )
+        return 0 if wallets else 1
 
     if not config.is_paper:
         log.warning(

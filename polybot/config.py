@@ -60,6 +60,20 @@ class ConsensusConfig:
 
 
 @dataclass
+class LeaderboardConfig:
+    # Auto-populate the copy-trading watchlist from Polymarket's trader
+    # leaderboard. Scraped wallets are merged with target_wallets and
+    # watchlist_file and still have to pass `filters` before being copied.
+    enabled: bool = False
+    category: str = "OVERALL"    # OVERALL, POLITICS, SPORTS, ESPORTS, CRYPTO, CULTURE, MENTIONS, WEATHER, ECONOMICS, TECH, FINANCE
+    time_period: str = "MONTH"   # DAY, WEEK, MONTH, ALL
+    order_by: str = "PNL"        # PNL or VOL
+    top_n: int = 25              # API maximum is 50
+    refresh_hours: float = 24.0
+    cache_file: str = "data/leaderboard_watchlist.json"
+
+
+@dataclass
 class ThresholdConfig:
     # Standalone strategy (runs alongside copy-trading): watch a list of
     # markets and automatically buy an outcome (Yes OR No) the moment its
@@ -108,6 +122,7 @@ class Config:
     watchlist_file: str | None = None
     filters: FilterCriteria = field(default_factory=FilterCriteria)
     consensus: ConsensusConfig = field(default_factory=ConsensusConfig)
+    leaderboard: LeaderboardConfig = field(default_factory=LeaderboardConfig)
     threshold: ThresholdConfig = field(default_factory=ThresholdConfig)
     sizing: SizingConfig = field(default_factory=SizingConfig)
     engine: EngineConfig = field(default_factory=EngineConfig)
@@ -137,6 +152,7 @@ class Config:
             watchlist_file=raw.get("watchlist_file"),
             filters=FilterCriteria(**raw.get("filters", {})),
             consensus=ConsensusConfig(**raw.get("consensus", {})),
+            leaderboard=LeaderboardConfig(**raw.get("leaderboard", {})),
             threshold=ThresholdConfig(**raw.get("threshold", {})),
             sizing=SizingConfig(**raw.get("sizing", {})),
             engine=EngineConfig(**raw.get("engine", {})),

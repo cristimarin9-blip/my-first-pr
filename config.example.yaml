@@ -34,6 +34,20 @@ target_wallets: []
 # leaderboard/activity feed. See watchlist.example.json.
 watchlist_file: watchlist.example.json
 
+# --- Leaderboard auto-watchlist ----------------------------------------------
+# Automatically pull top traders from Polymarket's leaderboard into the
+# candidate pool. They are merged with target_wallets/watchlist_file and,
+# like every candidate, still have to pass `filters` below to be copied.
+# Preview what it fetches with: python main.py --refresh-leaderboard
+leaderboard:
+  enabled: false
+  category: OVERALL      # OVERALL, POLITICS, SPORTS, ESPORTS, CRYPTO, CULTURE, MENTIONS, WEATHER, ECONOMICS, TECH, FINANCE
+  time_period: MONTH     # DAY, WEEK, MONTH, ALL
+  order_by: PNL          # PNL (profit) or VOL (volume)
+  top_n: 25              # API maximum is 50
+  refresh_hours: 24      # how often to re-fetch; cached in between
+  cache_file: data/leaderboard_watchlist.json
+
 # --- Trader qualification filters -----------------------------------------
 # A candidate wallet is only copied if it passes ALL of these.
 filters:

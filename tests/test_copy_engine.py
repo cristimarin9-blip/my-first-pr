@@ -174,6 +174,61 @@ def test_data_api_error_is_skipped_not_raised(tmp_path):
     assert copied == 0
 
 
+class FakeLeaderboardWatchlist:
+    def __init__(self, wallets):
+        self.wallets = wallets
+
+    def get_wallets(self, force_refresh=False):
+        return list(self.wallets)
+
+
+def test_leaderboard_wallets_merge_into_candidates(tmp_path):
+    # 0xgood comes only from the leaderboard, not the static watchlist
+    cfg = make_config(tmp_path, [])
+    data_client = FakeDataClient(
+        {"0xgood": GOOD_STATS},
+        {"0xgood": [make_trade("t1", "0xgood")]},
+    )
+    broker = FakeBroker()
+    engine = CopyEngine(
+        cfg, broker, data_client=data_client, leaderboard=FakeLeaderboardWatchlist(["0xgood"])
+    )
+
+    assert engine.poll_once() == 1
+    assert len(broker.orders) == 1
+
+
+def test_leaderboard_wallets_still_must_pass_filters(tmp_path):
+    cfg = make_config(tmp_path, [])
+    data_client = FakeDataClient(
+        {"0xbad": BAD_STATS},
+        {"0xbad": [make_trade("t1", "0xbad")]},
+    )
+    broker = FakeBroker()
+    engine = CopyEngine(
+        cfg, broker, data_client=data_client, leaderboard=FakeLeaderboardWatchlist(["0xbad"])
+    )
+
+    assert engine.poll_once() == 0
+    assert broker.orders == []
+
+
+def test_leaderboard_duplicates_of_static_watchlist_are_deduped(tmp_path):
+    cfg = make_config(tmp_path, ["0xgood"])
+    data_client = FakeDataClient(
+        {"0xgood": GOOD_STATS},
+        {"0xgood": [make_trade("t1", "0xgood")]},
+    )
+    broker = FakeBroker()
+    engine = CopyEngine(
+        cfg, broker, data_client=data_client, leaderboard=FakeLeaderboardWatchlist(["0xgood"])
+    )
+
+    assert engine._candidate_wallets() == ["0xgood"]
+    assert engine.poll_once() == 1
+    assert len(broker.orders) == 1  # copied once, not once per source
+
+
 CONSENSUS = ConsensusConfig(enabled=True, min_agreement=0.6, min_traders=2)
 ALLY_STATS = dataclasses.replace(GOOD_STATS, address="0xally")
 

@@ -23,6 +23,9 @@ else. See [No fees, anywhere](#no-fees-anywhere) below.
   you can validate a strategy before risking real money.
 - **Live trading** -- switch to `mode: live` to place real limit/IOC orders
   on Polymarket's CLOB via the official [`py-clob-client`](https://pypi.org/project/py-clob-client/) SDK.
+- **Leaderboard auto-watchlist** -- optionally scrape Polymarket's trader
+  leaderboard (by profit or volume, per category and time window) to
+  populate the candidate pool automatically (`leaderboard.*` in the config).
 - **Configurable trader filters** -- only copy wallets that meet your bar for:
   - minimum number of trades
   - minimum win rate
@@ -71,6 +74,7 @@ polybot/
   models.py           # Trade, Position, TraderStats, OrderResult, ...
   data_client.py      # wraps Polymarket's public data-api (trades, positions, trader stats)
   gamma_client.py     # wraps Polymarket's public Gamma API (market metadata/prices)
+  leaderboard.py      # scrapes the trader leaderboard to auto-populate the watchlist
   trader_filter.py    # win-rate / volume / position-count filtering
   consensus.py        # optional "X% of top traders agree" gate for BUYs
   threshold_engine.py # standalone "buy when an outcome reaches X% chance" strategy
@@ -105,10 +109,36 @@ Add wallet addresses either directly under `target_wallets` in `config.yaml`,
 or in a JSON array file referenced by `watchlist_file` (see
 `watchlist.example.json`). Every candidate wallet still has to pass the
 `filters` section before it's actually copied -- the watchlist is just the
-pool of *candidates*, not a guarantee they'll be traded. There is no public,
-documented "top traders" API to pull this list automatically, so populate the
-watchlist yourself from Polymarket's leaderboard/activity feed or from wallets
-you already follow.
+pool of *candidates*, not a guarantee they'll be traded.
+
+**Or let the leaderboard scraper populate it for you:**
+
+```yaml
+leaderboard:
+  enabled: true
+  category: OVERALL    # or POLITICS, SPORTS, CRYPTO, ECONOMICS, TECH, ...
+  time_period: MONTH   # DAY, WEEK, MONTH, ALL
+  order_by: PNL        # rank by profit, or VOL for volume
+  top_n: 25            # API max is 50
+  refresh_hours: 24
+```
+
+This pulls the top traders from Polymarket's public leaderboard API
+(`data-api.polymarket.com/v1/leaderboard`), merges them with your static
+watchlist (deduped), and caches the result in
+`data/leaderboard_watchlist.json` so it only re-fetches every
+`refresh_hours` (falling back to the cached list if the API is down).
+Leaderboard wallets get no special treatment: they still must pass your
+`filters` before a single trade is copied. Preview what it fetches with:
+
+```bash
+python main.py --refresh-leaderboard
+```
+
+A tip on choosing `order_by`: `PNL` finds profitable traders, but a lucky
+whale can top it with one giant win; your `min_trades`/`min_win_rate`
+filters are what separate consistent traders from one-hit wonders, so keep
+them strict when auto-populating.
 
 ### Paper trading (default)
 

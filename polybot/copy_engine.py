@@ -7,6 +7,7 @@ from polybot.broker import Broker
 from polybot.config import Config
 from polybot.consensus import Holdings, evaluate_consensus
 from polybot.data_client import DataApiClient, DataApiError
+from polybot.leaderboard import LeaderboardClient, LeaderboardWatchlist
 from polybot.models import Side, Trade, TraderStats
 from polybot.sizing import compute_copy_size
 from polybot.state_store import load_json, save_json
@@ -23,10 +24,19 @@ class CopyEngine:
         config: Config,
         broker: Broker,
         data_client: DataApiClient | None = None,
+        leaderboard: LeaderboardWatchlist | None = None,
     ):
         self.config = config
         self.broker = broker
         self.data_client = data_client or DataApiClient(config.data_api_url)
+        if leaderboard is not None:
+            self.leaderboard = leaderboard
+        elif config.leaderboard.enabled:
+            self.leaderboard = LeaderboardWatchlist(
+                config.leaderboard, LeaderboardClient(config.data_api_url)
+            )
+        else:
+            self.leaderboard = None
         self._seen_trade_ids: set[str] = set(
             load_json(config.engine.seen_trades_file, [])
         )
@@ -37,9 +47,20 @@ class CopyEngine:
         trimmed = list(self._seen_trade_ids)[-5000:]
         save_json(self.config.engine.seen_trades_file, trimmed)
 
+    def _candidate_wallets(self) -> list[str]:
+        """Static watchlist merged with leaderboard wallets (if enabled), deduped."""
+        wallets = self.config.load_watchlist()
+        if self.leaderboard is not None:
+            known = set(wallets)
+            for wallet in self.leaderboard.get_wallets():
+                if wallet not in known:
+                    known.add(wallet)
+                    wallets.append(wallet)
+        return wallets
+
     def poll_once(self) -> int:
         """Run one evaluation pass over all candidate wallets. Returns trades copied."""
-        wallets = self.config.load_watchlist()
+        wallets = self._candidate_wallets()
 
         qualified: dict[str, TraderStats] = {}
         for wallet in wallets:
