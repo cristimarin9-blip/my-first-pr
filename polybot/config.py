@@ -141,6 +141,20 @@ class EngineConfig:
     seen_trades_file: str = "data/seen_trades.json"
     log_file: str = "data/trades.log"
     journal_file: str = "data/trade_journal.csv"
+    equity_file: str = "data/equity_history.json"
+    equity_snapshot_minutes: float = 5.0
+
+
+@dataclass
+class WebConfig:
+    # Built-in dashboard (PnL chart, positions, risk counters), served while
+    # the bot runs. Mobile-friendly -- open it from any browser, PC or phone.
+    enabled: bool = True
+    # 127.0.0.1 = this machine only. Set to 0.0.0.0 to reach it from other
+    # devices on your network (e.g. your phone) -- the dashboard is
+    # unauthenticated and read-only, so only expose it on networks you trust.
+    host: str = "127.0.0.1"
+    port: int = 8080
 
 
 @dataclass
@@ -155,6 +169,7 @@ class Config:
     risk: RiskConfig = field(default_factory=RiskConfig)
     sizing: SizingConfig = field(default_factory=SizingConfig)
     engine: EngineConfig = field(default_factory=EngineConfig)
+    web: WebConfig = field(default_factory=WebConfig)
     paper: PaperConfig = field(default_factory=PaperConfig)
     live: LiveConfig = field(default_factory=LiveConfig)
     data_api_url: str = "https://data-api.polymarket.com"
@@ -186,6 +201,7 @@ class Config:
             risk=RiskConfig(**raw.get("risk", {})),
             sizing=SizingConfig(**raw.get("sizing", {})),
             engine=EngineConfig(**raw.get("engine", {})),
+            web=WebConfig(**raw.get("web", {})),
             paper=PaperConfig(**raw.get("paper", {})),
             live=LiveConfig(**raw.get("live", {})),
             data_api_url=raw.get("data_api_url", "https://data-api.polymarket.com"),

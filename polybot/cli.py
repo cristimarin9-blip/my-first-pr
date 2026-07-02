@@ -81,7 +81,7 @@ def print_status(config: Config, broker: Broker) -> None:
             print(f"!! KILL SWITCH active ({broker.config.kill_switch_file} exists) -- SELLs only")
 
 
-def run_loop(engines: list, interval_seconds: int) -> None:
+def run_loop(engines: list, interval_seconds: int, tracker=None, broker: Broker | None = None) -> None:
     while True:
         for engine in engines:
             try:
@@ -90,6 +90,8 @@ def run_loop(engines: list, interval_seconds: int) -> None:
                     log.info("%s: %d action(s) this pass", type(engine).__name__, n)
             except Exception:
                 log.exception("unexpected error in %s, continuing", type(engine).__name__)
+        if tracker is not None and broker is not None:
+            tracker.maybe_snapshot(broker)
         time.sleep(interval_seconds)
 
 
@@ -154,7 +156,20 @@ def main(argv: list[str] | None = None) -> int:
         log.info("done: %d action(s)", total)
         return 0
 
-    run_loop(engines, config.engine.poll_interval_seconds)
+    from polybot.tracker import EquityTracker
+
+    tracker = EquityTracker(config.engine.equity_file, config.engine.equity_snapshot_minutes)
+    tracker.maybe_snapshot(broker)  # seed the chart with a point at startup
+
+    if config.web.enabled:
+        from polybot.web import DashboardServer
+
+        try:
+            DashboardServer(config, broker, tracker).start_background()
+        except OSError as exc:
+            log.warning("dashboard disabled, could not bind %s:%d: %s", config.web.host, config.web.port, exc)
+
+    run_loop(engines, config.engine.poll_interval_seconds, tracker, broker)
     return 0
 
 

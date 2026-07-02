@@ -53,6 +53,11 @@ else. See [No fees, anywhere](#no-fees-anywhere) below.
   (strategy, source trader, market, price/size/notional) for later analysis,
   and `python main.py --status` shows cash, positions with unrealized PnL,
   and today's risk counters at a glance.
+- **Web dashboard with PnL charts** -- a mobile-friendly dashboard served
+  while the bot runs: PnL chart with selectable time periods (1H / 6H / 1D /
+  1W / 1M / ALL), stat tiles, open positions, recent trades, and today's
+  risk limits. Works in any browser -- desktop or phone -- with automatic
+  light/dark theme.
 - **Same code path for paper and live** -- the copy-engine only talks to a
   `Broker` interface, so switching modes is a one-line config change.
 
@@ -92,6 +97,8 @@ polybot/
   sizing.py           # proportional position sizing + risk caps
   risk.py             # circuit breakers wrapped around every order (see below)
   journal.py          # append-only CSV log of every executed trade
+  tracker.py          # periodic equity snapshots (the PnL chart's data)
+  web.py              # mobile-friendly dashboard: PnL chart, positions, limits
   broker.py           # Broker interface shared by paper and live
   paper_broker.py      # simulated broker, no real funds, no fees
   live_broker.py       # real orders via py-clob-client, no fees
@@ -259,6 +266,52 @@ your entry versus theirs. Daily counters reset at local midnight and survive
 restarts (`data/risk_state.json`). The kill switch is just a file:
 `touch data/HALT` stops all new exposure immediately without killing the
 process, `rm data/HALT` resumes.
+
+### Web dashboard (PnL charts, PC & phone)
+
+While the bot runs it serves a read-only dashboard (on by default at
+`http://127.0.0.1:8080`):
+
+- **PnL chart** with time-period buttons -- 1H / 6H / 1D / 1W / 1M / ALL --
+  showing profit/loss relative to the start of the selected window, with a
+  crosshair tooltip (tap or hover) for exact values.
+- Stat tiles (equity, cash, realized PnL, open positions), today's risk
+  limits, open positions, and recent trades.
+- **Responsive and theme-aware**: lays out for phone screens and follows
+  your system's light/dark setting automatically, so it looks right on a
+  desktop monitor and an Android phone alike.
+
+The chart's data comes from equity snapshots the bot records every
+`engine.equity_snapshot_minutes` (default 5) into `data/equity_history.json`
+-- it fills in as the bot runs.
+
+**Opening it from your phone:** set `web.host: 0.0.0.0` in `config.yaml`,
+then browse to `http://<machine-ip>:8080` from a phone on the same network
+(find the machine's IP with `ip addr` / `ipconfig`). For access from
+anywhere, put it behind a VPN like Tailscale or WireGuard rather than
+exposing the port to the internet -- the dashboard is read-only and never
+shows keys, but it is unauthenticated by design. If you host with Docker
+Compose, add `ports: ["8080:8080"]` to the service and set `web.host:
+0.0.0.0`.
+
+### Near-certainty preset (entries above 90%)
+
+To restrict the whole bot -- both strategies -- to high-probability entries,
+use the risk price band (this is how `config.example.yaml` ships):
+
+```yaml
+risk:
+  min_buy_price: 0.90   # only enter outcomes already priced >= 90%
+  max_buy_price: 0.98   # but don't chase above 98% -- almost no payoff left
+threshold:
+  trigger_probability: 0.90
+```
+
+Copied trades below 90% get skipped automatically. Keep in mind the
+asymmetry this strategy carries: entries in the 90-98% band win small
+amounts often and lose big rarely (a 93¢ entry that resolves NO costs ~9
+wins' worth of profit), which is exactly why `daily_loss_limit_usd` and
+`stop_loss_probability` matter more here, not less.
 
 ### Tracking: trade journal and --status
 

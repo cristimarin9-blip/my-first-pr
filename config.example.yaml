@@ -88,8 +88,11 @@ threshold:
 # Check the current counters any time with: python main.py --status
 risk:
   enabled: true
-  min_buy_price: 0.03               # don't buy longshots below 3%...
-  max_buy_price: 0.97               # ...or near-certainties above 97%
+  # Near-certainty preset: only ever ENTER outcomes already priced above 90%
+  # (applies to every strategy -- copied trades below 90% get skipped too).
+  # Lower min_buy_price (e.g. 0.03) if you also want mid-range entries.
+  min_buy_price: 0.90
+  max_buy_price: 0.98               # but don't chase above 98% -- no payoff left
   max_market_exposure_usd: 150.0    # cap on cost basis in any single market
   max_buys_per_day: 50
   max_buy_notional_per_day_usd: 250.0
@@ -118,3 +121,16 @@ engine:
   seen_trades_file: data/seen_trades.json
   log_file: data/trades.log
   journal_file: data/trade_journal.csv   # CSV log of every executed trade
+  equity_file: data/equity_history.json  # time series behind the PnL chart
+  equity_snapshot_minutes: 5             # how often a chart point is recorded
+
+# --- Web dashboard ------------------------------------------------------------
+# Mobile-friendly dashboard with the PnL chart (1H/6H/1D/1W/1M/ALL), open
+# positions, recent trades, and today's risk counters. Served while the bot
+# runs; open http://<host>:<port> in any browser (PC or phone).
+web:
+  enabled: true
+  # 127.0.0.1 = this machine only. Set to 0.0.0.0 to open it from your phone
+  # on the same network. Read-only and unauthenticated -- trusted networks only.
+  host: 127.0.0.1
+  port: 8080
