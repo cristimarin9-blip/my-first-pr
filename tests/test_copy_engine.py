@@ -1,7 +1,9 @@
 import time
 
+import dataclasses
+
 from polybot.broker import Broker
-from polybot.config import Config, EngineConfig, FilterCriteria, SizingConfig
+from polybot.config import Config, ConsensusConfig, EngineConfig, FilterCriteria, SizingConfig
 from polybot.copy_engine import CopyEngine
 from polybot.data_client import DataApiError
 from polybot.models import OrderResult, Position, Side, Trade, TraderStats
@@ -24,9 +26,10 @@ class FakeBroker(Broker):
 
 
 class FakeDataClient:
-    def __init__(self, stats_by_wallet, trades_by_wallet):
+    def __init__(self, stats_by_wallet, trades_by_wallet, positions_by_wallet=None):
         self.stats_by_wallet = stats_by_wallet
         self.trades_by_wallet = trades_by_wallet
+        self.positions_by_wallet = positions_by_wallet or {}
 
     def get_trader_stats(self, wallet, trade_limit=500):
         stats = self.stats_by_wallet.get(wallet)
@@ -39,6 +42,9 @@ class FakeDataClient:
         if after is not None:
             trades = [t for t in trades if t.timestamp > after]
         return trades
+
+    def get_positions_raw(self, wallet):
+        return self.positions_by_wallet.get(wallet, [])
 
 
 GOOD_STATS = TraderStats(
@@ -62,10 +68,11 @@ BAD_STATS = TraderStats(
 )
 
 
-def make_config(tmp_path, wallets):
+def make_config(tmp_path, wallets, consensus=None):
     cfg = Config(
         mode="paper",
         target_wallets=wallets,
+        consensus=consensus or ConsensusConfig(),
         filters=FilterCriteria(min_trades=10, min_win_rate=0.6, min_volume_usd=100.0, max_open_positions=10, min_avg_trade_usd=1.0),
         sizing=SizingConfig(copy_ratio=1.0, max_position_usd=1000.0, max_total_exposure_usd=1000.0, min_order_usd=1.0),
         engine=EngineConfig(
@@ -78,7 +85,7 @@ def make_config(tmp_path, wallets):
     return cfg
 
 
-def make_trade(trade_id, trader, timestamp=None):
+def make_trade(trade_id, trader, timestamp=None, side=Side.BUY):
     if timestamp is None:
         timestamp = int(time.time())
     return Trade(
@@ -87,7 +94,7 @@ def make_trade(trade_id, trader, timestamp=None):
         condition_id="cond1",
         token_id="tok1",
         outcome="Yes",
-        side=Side.BUY,
+        side=side,
         price=0.5,
         size=100.0,
         timestamp=timestamp,
@@ -165,3 +172,70 @@ def test_data_api_error_is_skipped_not_raised(tmp_path):
     copied = engine.poll_once()  # should not raise
 
     assert copied == 0
+
+
+CONSENSUS = ConsensusConfig(enabled=True, min_agreement=0.6, min_traders=2)
+ALLY_STATS = dataclasses.replace(GOOD_STATS, address="0xally")
+
+
+def make_consensus_engine(tmp_path, ally_holdings, trade=None):
+    """Two qualified wallets; 0xgood makes a trade, 0xally's holdings vary."""
+    cfg = make_config(tmp_path, ["0xgood", "0xally"], consensus=CONSENSUS)
+    data_client = FakeDataClient(
+        {"0xgood": GOOD_STATS, "0xally": ALLY_STATS},
+        {"0xgood": [trade or make_trade("t1", "0xgood")]},
+        positions_by_wallet={
+            "0xgood": [{"conditionId": "cond1", "asset": "tok1", "size": 100}],
+            "0xally": ally_holdings,
+        },
+    )
+    broker = FakeBroker()
+    return CopyEngine(cfg, broker, data_client=data_client), broker
+
+
+def test_consensus_blocks_buy_when_traders_disagree(tmp_path):
+    # ally holds the opposite outcome -> 1/2 = 50% < 60%
+    engine, broker = make_consensus_engine(
+        tmp_path, [{"conditionId": "cond1", "asset": "tok_other", "size": 50}]
+    )
+    assert engine.poll_once() == 0
+    assert broker.orders == []
+
+
+def test_consensus_blocks_buy_when_too_few_traders_have_a_stake(tmp_path):
+    # ally has no position in this market -> only 1 opinionated trader < min_traders
+    engine, broker = make_consensus_engine(tmp_path, [])
+    assert engine.poll_once() == 0
+    assert broker.orders == []
+
+
+def test_consensus_allows_buy_when_traders_agree(tmp_path):
+    engine, broker = make_consensus_engine(
+        tmp_path, [{"conditionId": "cond1", "asset": "tok1", "size": 50}]
+    )
+    assert engine.poll_once() == 1
+    assert len(broker.orders) == 1
+
+
+def test_consensus_never_blocks_sells(tmp_path):
+    engine, broker = make_consensus_engine(
+        tmp_path,
+        [{"conditionId": "cond1", "asset": "tok_other", "size": 50}],  # would veto a BUY
+        trade=make_trade("t1", "0xgood", side=Side.SELL),
+    )
+    assert engine.poll_once() == 1
+    assert broker.orders[0][1] == Side.SELL
+
+
+def test_consensus_disabled_ignores_holdings(tmp_path):
+    cfg = make_config(tmp_path, ["0xgood", "0xally"])  # consensus disabled by default
+    data_client = FakeDataClient(
+        {"0xgood": GOOD_STATS, "0xally": ALLY_STATS},
+        {"0xgood": [make_trade("t1", "0xgood")]},
+        positions_by_wallet={
+            "0xally": [{"conditionId": "cond1", "asset": "tok_other", "size": 50}],
+        },
+    )
+    broker = FakeBroker()
+    engine = CopyEngine(cfg, broker, data_client=data_client)
+    assert engine.poll_once() == 1

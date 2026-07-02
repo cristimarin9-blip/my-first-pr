@@ -46,6 +46,20 @@ class FilterCriteria:
 
 
 @dataclass
+class ConsensusConfig:
+    # When enabled, a BUY is only copied if at least `min_agreement` of the
+    # qualified traders with a stake in that market hold the same outcome.
+    # SELLs (exits) are never blocked by consensus.
+    enabled: bool = False
+    min_agreement: float = 0.6
+    # Minimum number of qualified traders with a position in the market
+    # (including the one whose trade triggered the check) before consensus
+    # is meaningful. Below this, the trade is skipped, so a single trader
+    # can never count as "100% agreement" with themselves.
+    min_traders: int = 2
+
+
+@dataclass
 class SizingConfig:
     copy_ratio: float = 0.25
     max_position_usd: float = 100.0
@@ -67,6 +81,7 @@ class Config:
     target_wallets: list[str] = field(default_factory=list)
     watchlist_file: str | None = None
     filters: FilterCriteria = field(default_factory=FilterCriteria)
+    consensus: ConsensusConfig = field(default_factory=ConsensusConfig)
     sizing: SizingConfig = field(default_factory=SizingConfig)
     engine: EngineConfig = field(default_factory=EngineConfig)
     paper: PaperConfig = field(default_factory=PaperConfig)
@@ -94,6 +109,7 @@ class Config:
             target_wallets=[w.lower() for w in raw.get("target_wallets", [])],
             watchlist_file=raw.get("watchlist_file"),
             filters=FilterCriteria(**raw.get("filters", {})),
+            consensus=ConsensusConfig(**raw.get("consensus", {})),
             sizing=SizingConfig(**raw.get("sizing", {})),
             engine=EngineConfig(**raw.get("engine", {})),
             paper=PaperConfig(**raw.get("paper", {})),

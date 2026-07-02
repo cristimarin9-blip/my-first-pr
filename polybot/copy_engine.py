@@ -5,8 +5,9 @@ import time
 
 from polybot.broker import Broker
 from polybot.config import Config
+from polybot.consensus import Holdings, evaluate_consensus
 from polybot.data_client import DataApiClient, DataApiError
-from polybot.models import Trade, TraderStats
+from polybot.models import Side, Trade, TraderStats
 from polybot.sizing import compute_copy_size
 from polybot.state_store import load_json, save_json
 from polybot.trader_filter import passes_filters
@@ -39,18 +40,25 @@ class CopyEngine:
     def poll_once(self) -> int:
         """Run one evaluation pass over all candidate wallets. Returns trades copied."""
         wallets = self.config.load_watchlist()
-        copied = 0
+
+        qualified: dict[str, TraderStats] = {}
         for wallet in wallets:
             try:
                 stats = self.data_client.get_trader_stats(wallet)
             except DataApiError as exc:
                 log.warning("skipping %s: could not fetch trader stats (%s)", wallet, exc)
                 continue
-
-            if not passes_filters(stats, self.config.filters):
+            if passes_filters(stats, self.config.filters):
+                qualified[wallet] = stats
+            else:
                 log.debug("wallet %s does not pass filters, skipping", wallet)
-                continue
 
+        holdings_by_trader: dict[str, Holdings] | None = None
+        if self.config.consensus.enabled:
+            holdings_by_trader = self._fetch_holdings(qualified)
+
+        copied = 0
+        for wallet, stats in qualified.items():
             try:
                 trades = self.data_client.get_trades(wallet, limit=50, after=self._startup_cutoff)
             except DataApiError as exc:
@@ -61,11 +69,52 @@ class CopyEngine:
                 if trade.trade_id in self._seen_trade_ids:
                     continue
                 self._seen_trade_ids.add(trade.trade_id)
+                if not self._passes_consensus(trade, holdings_by_trader):
+                    continue
                 if self._copy_trade(trade, stats):
                     copied += 1
 
         self._persist_seen()
         return copied
+
+    def _fetch_holdings(self, qualified: dict[str, TraderStats]) -> dict[str, Holdings]:
+        """Open (condition_id, token_id) holdings for every qualified trader."""
+        holdings_by_trader: dict[str, Holdings] = {}
+        for wallet in qualified:
+            try:
+                raw = self.data_client.get_positions_raw(wallet)
+            except DataApiError as exc:
+                log.warning("consensus: could not fetch positions for %s, treating as no holdings (%s)", wallet, exc)
+                raw = []
+            holdings: Holdings = []
+            for pos in raw:
+                try:
+                    size = float(pos.get("size", 0.0) or 0.0)
+                except (TypeError, ValueError):
+                    continue
+                if size > 0:
+                    holdings.append((str(pos.get("conditionId", "")), str(pos.get("asset", ""))))
+            holdings_by_trader[wallet] = holdings
+        return holdings_by_trader
+
+    def _passes_consensus(self, trade: Trade, holdings_by_trader: dict[str, Holdings] | None) -> bool:
+        if holdings_by_trader is None:
+            return True
+        # Never block an exit: if qualified traders are getting out, staying
+        # in because "not enough of them agree on selling" just adds risk.
+        if trade.side == Side.SELL:
+            return True
+
+        result = evaluate_consensus(trade, holdings_by_trader)
+        if result.passes(self.config.consensus):
+            return True
+        log.info(
+            "consensus veto: %s on %s has %d/%d qualified traders (%.0f%%), need >=%.0f%% of >=%d",
+            trade.side.value, trade.title or trade.token_id,
+            result.agree, result.opinionated, result.fraction * 100,
+            self.config.consensus.min_agreement * 100, self.config.consensus.min_traders,
+        )
+        return False
 
     def _copy_trade(self, trade: Trade, stats: TraderStats) -> bool:
         our_bankroll = self.broker.get_cash_balance()

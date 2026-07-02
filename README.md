@@ -29,6 +29,9 @@ else. See [No fees, anywhere](#no-fees-anywhere) below.
   - minimum lifetime traded volume
   - maximum number of concurrently open positions
   - minimum average trade size (filters out dust/spam wallets)
+- **Optional consensus gate** -- only copy a BUY when at least X% of your
+  qualified top traders with a stake in that market are holding the same
+  outcome (`consensus.*` in the config). Exits are never blocked.
 - **Proportional position sizing** -- mirrors the *fraction of bankroll* a
   trader committed to a trade (not the raw dollar amount), scaled by your own
   `copy_ratio`, and capped by your own per-trade and total-exposure limits.
@@ -65,6 +68,7 @@ polybot/
   data_client.py      # wraps Polymarket's public data-api (trades, positions, trader stats)
   gamma_client.py     # wraps Polymarket's public Gamma API (market metadata/prices)
   trader_filter.py    # win-rate / volume / position-count filtering
+  consensus.py        # optional "X% of top traders agree" gate for BUYs
   sizing.py           # proportional position sizing + risk caps
   broker.py           # Broker interface shared by paper and live
   paper_broker.py      # simulated broker, no real funds, no fees
@@ -128,6 +132,27 @@ trade's price plus `live.slippage_bps` of buffer, sized by the same
 `sizing.*` rules as paper mode. **Start with small `sizing.max_position_usd`
 and `sizing.max_total_exposure_usd` values and watch it for a while before
 trusting it with meaningful size.**
+
+### Consensus gate (optional)
+
+Set `consensus.enabled: true` to require agreement among your qualified
+traders before a BUY is copied:
+
+```yaml
+consensus:
+  enabled: true
+  min_agreement: 0.6   # >=60% of opinionated qualified traders must hold the same outcome
+  min_traders: 2       # at least 2 qualified traders must have a stake in the market
+```
+
+"Opinionated" means a qualified trader currently holds *any* outcome token in
+the trade's market; "agreement" means holding the *same* outcome the trade
+bought. The trader whose trade triggered the check always counts as agreeing
+(their trade is their stance), which is why `min_traders: 2` is the sensible
+floor -- it means at least one *other* qualified trader must have skin in that
+market before consensus can pass. SELLs are never blocked: when the trader
+you copy exits, the bot mirrors the exit regardless of what everyone else
+holds, since refusing to exit only adds risk.
 
 ## No fees, anywhere
 

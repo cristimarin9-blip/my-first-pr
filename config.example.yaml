@@ -43,6 +43,15 @@ filters:
   max_open_positions: 40     # skip wallets that are spread across too many markets
   min_avg_trade_usd: 10.0    # ignore dust/spam traders
 
+# --- Consensus gate ---------------------------------------------------------
+# Optionally require agreement among your qualified top traders before
+# copying a BUY. "Agreement" means holding the same outcome token in the
+# same market. SELLs (exits) are never blocked by this gate.
+consensus:
+  enabled: false
+  min_agreement: 0.6   # at least this fraction of opinionated qualified traders must be on the same outcome
+  min_traders: 2       # at least this many qualified traders must have a stake in the market at all
+
 # --- Position sizing --------------------------------------------------------
 sizing:
   # We mirror the % of the trader's own bankroll that they committed to a
