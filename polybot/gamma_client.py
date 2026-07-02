@@ -36,8 +36,8 @@ class GammaClient:
                 time.sleep(min(2**attempt, 8))
         raise GammaApiError(f"GET {url} failed after {retries} attempts: {last_exc}")
 
-    def get_market_by_condition_id(self, condition_id: str) -> dict[str, Any] | None:
-        raw = self._get("/markets", {"condition_ids": condition_id})
+    def get_market_by_condition_id(self, condition_id: str, retries: int = 3) -> dict[str, Any] | None:
+        raw = self._get("/markets", {"condition_ids": condition_id}, retries=retries)
         if not isinstance(raw, list) or not raw:
             return None
         return raw[0]
@@ -65,9 +65,9 @@ class GammaClient:
                 continue
         return tokens
 
-    def get_token_price(self, condition_id: str, token_id: str) -> float | None:
+    def get_token_price(self, condition_id: str, token_id: str, retries: int = 3) -> float | None:
         """Best-effort last/mid price for a specific outcome token, in [0, 1]."""
-        market = self.get_market_by_condition_id(condition_id)
+        market = self.get_market_by_condition_id(condition_id, retries=retries)
         if not market:
             return None
         try:

@@ -100,6 +100,33 @@ class ThresholdConfig:
 
 
 @dataclass
+class RiskConfig:
+    # Circuit breakers enforced on every order, regardless of which strategy
+    # produced it. BUYs (new exposure) get blocked; SELLs (de-risking) are
+    # always allowed through.
+    enabled: bool = True
+    # Entry price band: don't buy longshots or near-certainties.
+    min_buy_price: float = 0.03
+    max_buy_price: float = 0.97
+    # Concentration cap: total cost basis in any single market.
+    max_market_exposure_usd: float = 150.0
+    # Daily rate/spend limits (reset at local midnight).
+    max_buys_per_day: int = 50
+    max_buy_notional_per_day_usd: float = 250.0
+    # Halt new BUYs for the rest of the day once today's REALIZED loss
+    # reaches this amount. 0 disables.
+    daily_loss_limit_usd: float = 100.0
+    # Copy-engine guard: skip copying a BUY if the market already moved more
+    # than this many basis points above the source trader's fill price
+    # (avoids chasing a move that already happened). 0 disables.
+    max_price_drift_bps: float = 0.0
+    # Touch this file (e.g. `touch data/HALT`) to instantly block all new
+    # BUYs without stopping the process; exits keep working. Delete to resume.
+    kill_switch_file: str = "data/HALT"
+    state_file: str = "data/risk_state.json"
+
+
+@dataclass
 class SizingConfig:
     copy_ratio: float = 0.25
     max_position_usd: float = 100.0
@@ -113,6 +140,7 @@ class EngineConfig:
     trade_lookback_seconds: int = 3600
     seen_trades_file: str = "data/seen_trades.json"
     log_file: str = "data/trades.log"
+    journal_file: str = "data/trade_journal.csv"
 
 
 @dataclass
@@ -124,6 +152,7 @@ class Config:
     consensus: ConsensusConfig = field(default_factory=ConsensusConfig)
     leaderboard: LeaderboardConfig = field(default_factory=LeaderboardConfig)
     threshold: ThresholdConfig = field(default_factory=ThresholdConfig)
+    risk: RiskConfig = field(default_factory=RiskConfig)
     sizing: SizingConfig = field(default_factory=SizingConfig)
     engine: EngineConfig = field(default_factory=EngineConfig)
     paper: PaperConfig = field(default_factory=PaperConfig)
@@ -154,6 +183,7 @@ class Config:
             consensus=ConsensusConfig(**raw.get("consensus", {})),
             leaderboard=LeaderboardConfig(**raw.get("leaderboard", {})),
             threshold=ThresholdConfig(**raw.get("threshold", {})),
+            risk=RiskConfig(**raw.get("risk", {})),
             sizing=SizingConfig(**raw.get("sizing", {})),
             engine=EngineConfig(**raw.get("engine", {})),
             paper=PaperConfig(**raw.get("paper", {})),

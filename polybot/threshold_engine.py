@@ -5,6 +5,7 @@ import logging
 from polybot.broker import Broker
 from polybot.config import ThresholdConfig
 from polybot.gamma_client import GammaClient
+from polybot.journal import TradeJournal
 from polybot.models import Side
 from polybot.state_store import load_json, save_json
 
@@ -24,10 +25,17 @@ class ThresholdEngine:
     works identically in paper and live mode.
     """
 
-    def __init__(self, config: ThresholdConfig, broker: Broker, gamma_client: GammaClient | None = None):
+    def __init__(
+        self,
+        config: ThresholdConfig,
+        broker: Broker,
+        gamma_client: GammaClient | None = None,
+        journal: TradeJournal | None = None,
+    ):
         self.config = config
         self.broker = broker
         self.gamma = gamma_client or GammaClient()
+        self.journal = journal
         # token_id -> {"condition_id", "outcome", "entry_price", "exited"}
         self._entered: dict[str, dict] = load_json(config.state_file, {})
 
@@ -74,6 +82,15 @@ class ThresholdEngine:
                         "THRESHOLD ENTRY %s '%s' at %.0f%% (%.4f shares, $%.2f)",
                         outcome, condition_id, price * 100, result.size, result.notional_usd,
                     )
+                    if self.journal:
+                        self.journal.record(
+                            strategy="threshold",
+                            source="threshold-entry",
+                            market=condition_id,
+                            condition_id=condition_id,
+                            outcome=outcome,
+                            result=result,
+                        )
                 else:
                     log.warning("threshold entry failed for %s: %s", token_id, result.error)
         return placed
@@ -116,6 +133,15 @@ class ThresholdEngine:
                     "THRESHOLD EXIT (%s) %s at %.0f%% (entry was %.0f%%)",
                     reason, info["outcome"], price * 100, info["entry_price"] * 100,
                 )
+                if self.journal:
+                    self.journal.record(
+                        strategy="threshold",
+                        source=f"threshold-{reason}",
+                        market=info["condition_id"],
+                        condition_id=info["condition_id"],
+                        outcome=info["outcome"],
+                        result=result,
+                    )
             else:
                 log.warning("threshold %s exit failed for %s: %s", reason, token_id, result.error)
         return placed

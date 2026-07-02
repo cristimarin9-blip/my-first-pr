@@ -3,7 +3,7 @@ import time
 import dataclasses
 
 from polybot.broker import Broker
-from polybot.config import Config, ConsensusConfig, EngineConfig, FilterCriteria, SizingConfig
+from polybot.config import Config, ConsensusConfig, EngineConfig, FilterCriteria, RiskConfig, SizingConfig
 from polybot.copy_engine import CopyEngine
 from polybot.data_client import DataApiError
 from polybot.models import OrderResult, Position, Side, Trade, TraderStats
@@ -68,11 +68,12 @@ BAD_STATS = TraderStats(
 )
 
 
-def make_config(tmp_path, wallets, consensus=None):
+def make_config(tmp_path, wallets, consensus=None, risk=None):
     cfg = Config(
         mode="paper",
         target_wallets=wallets,
         consensus=consensus or ConsensusConfig(),
+        risk=risk or RiskConfig(max_price_drift_bps=0),
         filters=FilterCriteria(min_trades=10, min_win_rate=0.6, min_volume_usd=100.0, max_open_positions=10, min_avg_trade_usd=1.0),
         sizing=SizingConfig(copy_ratio=1.0, max_position_usd=1000.0, max_total_exposure_usd=1000.0, min_order_usd=1.0),
         engine=EngineConfig(
@@ -227,6 +228,54 @@ def test_leaderboard_duplicates_of_static_watchlist_are_deduped(tmp_path):
     assert engine._candidate_wallets() == ["0xgood"]
     assert engine.poll_once() == 1
     assert len(broker.orders) == 1  # copied once, not once per source
+
+
+class FakeGamma:
+    def __init__(self, price):
+        self.price = price
+
+    def get_token_price(self, condition_id, token_id):
+        return self.price
+
+
+def make_drift_engine(tmp_path, current_price, drift_bps=200):
+    cfg = make_config(tmp_path, ["0xgood"], risk=RiskConfig(max_price_drift_bps=drift_bps))
+    data_client = FakeDataClient(
+        {"0xgood": GOOD_STATS},
+        {"0xgood": [make_trade("t1", "0xgood")]},  # trade price is 0.5
+    )
+    broker = FakeBroker()
+    engine = CopyEngine(cfg, broker, data_client=data_client, gamma_client=FakeGamma(current_price))
+    return engine, broker
+
+
+def test_drift_guard_blocks_chasing(tmp_path):
+    # traded at 0.50, market now 0.60 -> way past the 2% ceiling of 0.51
+    engine, broker = make_drift_engine(tmp_path, current_price=0.60)
+    assert engine.poll_once() == 0
+    assert broker.orders == []
+
+
+def test_drift_guard_allows_within_ceiling(tmp_path):
+    engine, broker = make_drift_engine(tmp_path, current_price=0.505)
+    assert engine.poll_once() == 1
+    assert len(broker.orders) == 1
+
+
+def test_drift_guard_fails_open_when_price_unavailable(tmp_path):
+    engine, broker = make_drift_engine(tmp_path, current_price=None)
+    assert engine.poll_once() == 1
+
+
+def test_drift_guard_never_blocks_sells(tmp_path):
+    cfg = make_config(tmp_path, ["0xgood"], risk=RiskConfig(max_price_drift_bps=200))
+    data_client = FakeDataClient(
+        {"0xgood": GOOD_STATS},
+        {"0xgood": [make_trade("t1", "0xgood", side=Side.SELL)]},
+    )
+    broker = FakeBroker()
+    engine = CopyEngine(cfg, broker, data_client=data_client, gamma_client=FakeGamma(0.9))
+    assert engine.poll_once() == 1
 
 
 CONSENSUS = ConsensusConfig(enabled=True, min_agreement=0.6, min_traders=2)

@@ -82,6 +82,26 @@ threshold:
   stop_loss_probability: 0.50    # sell if it falls back to this chance (0 = disabled)
   state_file: data/threshold_state.json
 
+# --- Risk circuit breakers ----------------------------------------------------
+# Enforced on EVERY order from every strategy. BUYs (new exposure) get
+# blocked when a limit is hit; SELLs (exits) are always allowed through.
+# Check the current counters any time with: python main.py --status
+risk:
+  enabled: true
+  min_buy_price: 0.03               # don't buy longshots below 3%...
+  max_buy_price: 0.97               # ...or near-certainties above 97%
+  max_market_exposure_usd: 150.0    # cap on cost basis in any single market
+  max_buys_per_day: 50
+  max_buy_notional_per_day_usd: 250.0
+  daily_loss_limit_usd: 100.0       # halt new BUYs for the day once realized loss hits this (0 = off)
+  # Skip copying a BUY if the market already moved more than this many basis
+  # points above the source trader's fill price -- don't chase. (0 = off)
+  max_price_drift_bps: 200
+  # `touch data/HALT` to instantly block all new BUYs without stopping the
+  # bot (exits keep working); delete the file to resume.
+  kill_switch_file: data/HALT
+  state_file: data/risk_state.json
+
 # --- Position sizing --------------------------------------------------------
 sizing:
   # We mirror the % of the trader's own bankroll that they committed to a
@@ -97,3 +117,4 @@ engine:
   trade_lookback_seconds: 3600   # ignore trades older than this on first sight
   seen_trades_file: data/seen_trades.json
   log_file: data/trades.log
+  journal_file: data/trade_journal.csv   # CSV log of every executed trade

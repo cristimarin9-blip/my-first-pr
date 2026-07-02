@@ -8,7 +8,9 @@ import time
 from polybot.broker import Broker
 from polybot.config import Config
 from polybot.copy_engine import CopyEngine
+from polybot.journal import TradeJournal
 from polybot.logging_setup import setup_logging
+from polybot.risk import RiskGuardedBroker
 from polybot.threshold_engine import ThresholdEngine
 
 log = logging.getLogger(__name__)
@@ -18,19 +20,65 @@ def build_broker(config: Config) -> Broker:
     if config.is_paper:
         from polybot.paper_broker import PaperBroker
 
-        return PaperBroker(config.paper)
+        broker: Broker = PaperBroker(config.paper)
+    else:
+        from polybot.live_broker import LiveBroker
 
-    from polybot.live_broker import LiveBroker
+        broker = LiveBroker(config.live)
 
-    return LiveBroker(config.live)
+    if config.risk.enabled:
+        broker = RiskGuardedBroker(broker, config.risk)
+    return broker
 
 
 def build_engines(config: Config, broker: Broker) -> list:
-    """One engine per enabled strategy, all sharing the same broker."""
-    engines: list = [CopyEngine(config, broker)]
+    """One engine per enabled strategy, all sharing the same broker and journal."""
+    journal = TradeJournal(config.engine.journal_file)
+    engines: list = [CopyEngine(config, broker, journal=journal)]
     if config.threshold.enabled:
-        engines.append(ThresholdEngine(config.threshold, broker))
+        engines.append(ThresholdEngine(config.threshold, broker, journal=journal))
     return engines
+
+
+def print_status(config: Config, broker: Broker) -> None:
+    from polybot.gamma_client import GammaClient
+
+    print(f"mode: {'PAPER' if config.is_paper else 'LIVE'}")
+    print(f"cash: ${broker.get_cash_balance():.2f}")
+
+    inner = broker.inner if isinstance(broker, RiskGuardedBroker) else broker
+    realized = getattr(inner, "realized_pnl_usd", None)
+    if realized is not None:
+        print(f"realized pnl (all time): ${realized:.2f}")
+
+    positions = broker.get_positions()
+    print(f"open positions: {len(positions)} (cost basis ${broker.get_exposure_usd():.2f})")
+    gamma = GammaClient(config.gamma_api_url)
+    for pos in positions.values():
+        line = (
+            f"  {pos.outcome or pos.token_id}: {pos.size:.4f} shares "
+            f"@ avg {pos.avg_price:.4f} (cost ${pos.cost_basis_usd:.2f})"
+        )
+        try:
+            current = gamma.get_token_price(pos.condition_id, pos.token_id, retries=1)
+        except Exception:
+            current = None
+        if current is not None:
+            unrealized = (current - pos.avg_price) * pos.size
+            line += f" | now {current:.4f}, unrealized ${unrealized:+.2f}"
+        print(line)
+
+    if isinstance(broker, RiskGuardedBroker):
+        s = broker.today_summary()
+        print(
+            f"today ({s['date']}): {s['buys_today']}/{broker.config.max_buys_per_day} buys, "
+            f"${s['buy_notional_today']:.2f}/${broker.config.max_buy_notional_per_day_usd:.2f} notional, "
+            f"realized pnl ${s['realized_pnl_today']:+.2f}"
+        )
+        if s["halted"]:
+            print("!! HALTED for the day (daily loss limit hit) -- SELLs only")
+        if s["kill_switch"]:
+            print(f"!! KILL SWITCH active ({broker.config.kill_switch_file} exists) -- SELLs only")
 
 
 def run_loop(engines: list, interval_seconds: int) -> None:
@@ -57,6 +105,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="force-refresh the leaderboard watchlist, print the wallets, and exit",
     )
+    parser.add_argument(
+        "--status",
+        action="store_true",
+        help="print portfolio (cash, positions, PnL) and today's risk counters, then exit",
+    )
     args = parser.parse_args(argv)
 
     config = Config.load(args.config, args.env)
@@ -74,6 +127,10 @@ def main(argv: list[str] | None = None) -> int:
             len(wallets), config.leaderboard.cache_file,
         )
         return 0 if wallets else 1
+
+    if args.status:
+        print_status(config, build_broker(config))
+        return 0
 
     if not config.is_paper:
         log.warning(

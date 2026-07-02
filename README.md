@@ -42,6 +42,17 @@ else. See [No fees, anywhere](#no-fees-anywhere) below.
 - **Proportional position sizing** -- mirrors the *fraction of bankroll* a
   trader committed to a trade (not the raw dollar amount), scaled by your own
   `copy_ratio`, and capped by your own per-trade and total-exposure limits.
+- **Risk circuit breakers** -- a guard wrapped around every order from every
+  strategy: daily realized-loss halt, max buys/day, max spend/day, per-market
+  concentration cap, entry price band, and a file-based kill switch
+  (`touch data/HALT`) for instant manual halt. New exposure gets blocked;
+  exits always go through.
+- **Price-drift guard** -- skip copying a BUY when the market already moved
+  more than X bps above the source trader's fill price (don't chase).
+- **Trade journal + status** -- every executed trade is appended to a CSV
+  (strategy, source trader, market, price/size/notional) for later analysis,
+  and `python main.py --status` shows cash, positions with unrealized PnL,
+  and today's risk counters at a glance.
 - **Same code path for paper and live** -- the copy-engine only talks to a
   `Broker` interface, so switching modes is a one-line config change.
 
@@ -79,6 +90,8 @@ polybot/
   consensus.py        # optional "X% of top traders agree" gate for BUYs
   threshold_engine.py # standalone "buy when an outcome reaches X% chance" strategy
   sizing.py           # proportional position sizing + risk caps
+  risk.py             # circuit breakers wrapped around every order (see below)
+  journal.py          # append-only CSV log of every executed trade
   broker.py           # Broker interface shared by paper and live
   paper_broker.py      # simulated broker, no real funds, no fees
   live_broker.py       # real orders via py-clob-client, no fees
@@ -219,6 +232,50 @@ Note the trade-off this strategy makes: near-certain outcomes have tiny
 payoffs (buying at 90¢ to win $1 risks 90¢ to gain 10¢), so a single wrong
 market can erase many wins -- that's exactly what `stop_loss_probability`
 is there to cap. Paper-trade it first.
+
+### Risk circuit breakers
+
+Every order from every strategy passes through `RiskGuardedBroker`
+(`risk.*` in the config, on by default). It blocks new BUYs when a limit is
+hit; SELLs are always allowed through, even while halted -- a safety system
+that refuses to let you exit would itself be a risk.
+
+| Breaker | Config key | Default |
+|---|---|---|
+| Entry price band | `min_buy_price` / `max_buy_price` | 0.03 / 0.97 |
+| Per-market concentration cap | `max_market_exposure_usd` | $150 |
+| Max entries per day | `max_buys_per_day` | 50 |
+| Max spend per day | `max_buy_notional_per_day_usd` | $250 |
+| Daily realized-loss halt | `daily_loss_limit_usd` | $100 |
+| Don't-chase drift guard | `max_price_drift_bps` | off (200 suggested) |
+| Manual kill switch | `kill_switch_file` | `data/HALT` |
+
+The price band exists because both tails are traps: longshots under 3% are
+usually longshots for a reason, and near-certainties above 97% risk a lot to
+win almost nothing. The drift guard protects the core weakness of all
+copy-trading -- by the time you see a good trader's fill, the price may have
+already followed them; buying the top of that move systematically worsens
+your entry versus theirs. Daily counters reset at local midnight and survive
+restarts (`data/risk_state.json`). The kill switch is just a file:
+`touch data/HALT` stops all new exposure immediately without killing the
+process, `rm data/HALT` resumes.
+
+### Tracking: trade journal and --status
+
+Every executed trade is appended to `data/trade_journal.csv` with timestamp,
+strategy (`copy` / `threshold`), source (the copied wallet, or the threshold
+entry/exit reason), market, side, price, size, and notional -- ready for a
+spreadsheet or pandas to compute your own realized win rate and per-trader
+attribution. For a live snapshot:
+
+```bash
+python main.py --status
+```
+
+prints mode, cash, realized PnL, each open position with its current market
+price and unrealized PnL (when the price API is reachable), and today's
+risk counters (buys used, notional spent, realized PnL, halt/kill-switch
+state).
 
 ## No fees, anywhere
 

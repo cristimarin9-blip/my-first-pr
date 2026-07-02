@@ -7,6 +7,8 @@ from polybot.broker import Broker
 from polybot.config import Config
 from polybot.consensus import Holdings, evaluate_consensus
 from polybot.data_client import DataApiClient, DataApiError
+from polybot.gamma_client import GammaClient
+from polybot.journal import TradeJournal
 from polybot.leaderboard import LeaderboardClient, LeaderboardWatchlist
 from polybot.models import Side, Trade, TraderStats
 from polybot.sizing import compute_copy_size
@@ -25,10 +27,16 @@ class CopyEngine:
         broker: Broker,
         data_client: DataApiClient | None = None,
         leaderboard: LeaderboardWatchlist | None = None,
+        gamma_client: GammaClient | None = None,
+        journal: TradeJournal | None = None,
     ):
         self.config = config
         self.broker = broker
         self.data_client = data_client or DataApiClient(config.data_api_url)
+        self.journal = journal
+        self._gamma = gamma_client
+        if self._gamma is None and config.risk.max_price_drift_bps > 0:
+            self._gamma = GammaClient(config.gamma_api_url)
         if leaderboard is not None:
             self.leaderboard = leaderboard
         elif config.leaderboard.enabled:
@@ -137,7 +145,32 @@ class CopyEngine:
         )
         return False
 
+    def _passes_drift_guard(self, trade: Trade) -> bool:
+        """Skip BUYs the market has already run away from.
+
+        Copying only makes sense at (roughly) the price the trader got. If
+        the market has since moved more than `risk.max_price_drift_bps` above
+        their fill, we'd be chasing -- worse entry, worse odds. Fails open
+        when the current price can't be fetched. Never blocks SELLs.
+        """
+        max_drift = self.config.risk.max_price_drift_bps
+        if max_drift <= 0 or trade.side != Side.BUY or self._gamma is None:
+            return True
+        current = self._gamma.get_token_price(trade.condition_id, trade.token_id)
+        if current is None:
+            return True
+        ceiling = trade.price * (1 + max_drift / 10_000.0)
+        if current > ceiling:
+            log.info(
+                "drift veto: %s traded at %.4f but market is now %.4f (> %.4f ceiling)",
+                trade.title or trade.token_id, trade.price, current, ceiling,
+            )
+            return False
+        return True
+
     def _copy_trade(self, trade: Trade, stats: TraderStats) -> bool:
+        if not self._passes_drift_guard(trade):
+            return False
         our_bankroll = self.broker.get_cash_balance()
         exposure = self.broker.get_exposure_usd()
         size = compute_copy_size(trade, stats, our_bankroll, exposure, self.config.sizing)
@@ -160,6 +193,15 @@ class CopyEngine:
                 trade.side.value, trade.title or trade.token_id, trade.trader,
                 result.size, result.price, result.notional_usd,
             )
+            if self.journal:
+                self.journal.record(
+                    strategy="copy",
+                    source=trade.trader,
+                    market=trade.title,
+                    condition_id=trade.condition_id,
+                    outcome=trade.outcome,
+                    result=result,
+                )
         else:
             log.warning("failed to copy trade %s from %s: %s", trade.trade_id, trade.trader, result.error)
         return result.success
