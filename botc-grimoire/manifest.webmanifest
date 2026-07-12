@@ -1,0 +1,14 @@
+{
+  "name": "Grimoire — Storyteller Companion",
+  "short_name": "Grimoire",
+  "description": "An unofficial mobile Storyteller (GM) companion for a social-deduction game: seat players in a circle, assign characters, track life & status tokens, and run the night order — no physical set required.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#140b24",
+  "theme_color": "#1a1030",
+  "icons": [
+    { "src": "./icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

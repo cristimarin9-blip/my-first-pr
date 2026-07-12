@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#1a1030" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <title>Grimoire — Storyteller Companion</title>
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="icon" href="./icons/icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="./icons/icon.svg" />
+  <link rel="stylesheet" href="./css/styles.css" />
+</head>
+<body data-phase="setup">
+  <!-- Top bar -->
+  <header class="topbar">
+    <button id="btn-menu" class="icon-btn" aria-label="Menu">☰</button>
+    <div class="phase-info">
+      <span id="phase-label" class="phase-label">Setup</span>
+      <span id="alive-count" class="alive-count">0 alive / 0</span>
+    </div>
+    <button id="btn-nightorder" class="icon-btn" aria-label="Night order">🌙</button>
+  </header>
+
+  <!-- Demon bluffs strip -->
+  <section class="bluffs-strip">
+    <span class="bluffs-h">Bluffs</span>
+    <div id="bluffs"></div>
+  </section>
+
+  <!-- The Grimoire circle -->
+  <main class="stage-wrap">
+    <div id="circle" class="circle"></div>
+  </main>
+
+  <!-- Bottom action bar -->
+  <nav class="actionbar">
+    <button id="btn-setup" class="action-btn"><span>⚙️</span>Setup</button>
+    <button id="btn-add" class="action-btn"><span>➕</span>Add player</button>
+    <button id="btn-night" class="action-btn primary"><span>🌙</span>Night</button>
+    <button id="btn-day" class="action-btn primary"><span>☀️</span>Day</button>
+  </nav>
+
+  <!-- Bottom sheet -->
+  <div id="scrim" class="scrim"></div>
+  <section id="sheet" class="sheet" role="dialog" aria-modal="true">
+    <div class="sheet-handle"></div>
+    <div class="sheet-head">
+      <h2 id="sheet-title">Sheet</h2>
+      <button id="sheet-close" class="icon-btn" aria-label="Close">✕</button>
+    </div>
+    <div id="sheet-body" class="sheet-body"></div>
+  </section>
+
+  <script type="module" src="./js/app.js"></script>
+</body>
+</html>
