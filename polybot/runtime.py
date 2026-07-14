@@ -14,6 +14,7 @@ from polybot.config import Config
 from polybot.copy_engine import CopyEngine
 from polybot.envfile import set_env_var
 from polybot.journal import TradeJournal
+from polybot.resolution_engine import ResolutionEngine
 from polybot.risk import RiskGuardedBroker
 from polybot.threshold_engine import ThresholdEngine
 from polybot.tracker import EquityTracker
@@ -21,7 +22,9 @@ from polybot.tracker import EquityTracker
 log = logging.getLogger(__name__)
 
 # Config sections the dashboard Settings tab may edit.
-EDITABLE_SECTIONS = ["leaderboard", "filters", "consensus", "sizing", "risk", "threshold", "engine"]
+EDITABLE_SECTIONS = [
+    "resolution", "leaderboard", "filters", "consensus", "sizing", "risk", "threshold", "engine"
+]
 # Field-name fragments that must never be shown or accepted in the web form
 # (file paths, network binding, secrets).
 _HIDDEN_FIELD_MARKERS = ("_file", "host", "port", "url", "private_key", "funder", "token")
@@ -67,7 +70,11 @@ class BotRuntime:
         """(Re)build broker, engines, journal, and tracker from self.config."""
         self.broker = build_broker(self.config)
         self.journal = TradeJournal(self.config.engine.journal_file)
-        engines: list = [CopyEngine(self.config, self.broker, journal=self.journal)]
+        engines: list = []
+        if self.config.resolution.enabled:
+            engines.append(ResolutionEngine(self.config.resolution, self.broker, journal=self.journal))
+        if self.config.copy_enabled:
+            engines.append(CopyEngine(self.config, self.broker, journal=self.journal))
         if self.config.threshold.enabled:
             engines.append(ThresholdEngine(self.config.threshold, self.broker, journal=self.journal))
         self.engines = engines
@@ -127,6 +134,7 @@ class BotRuntime:
                 sections[name] = {k: v for k, v in section.items() if not _is_hidden(k)}
             return {
                 "mode": self.config.mode,
+                "copy_enabled": self.config.copy_enabled,
                 "target_wallets": list(self.config.target_wallets),
                 "sections": sections,
             }
@@ -213,6 +221,8 @@ class BotRuntime:
         with self._lock:
             base = dataclasses.asdict(self.config)
 
+            if "copy_enabled" in form:
+                base["copy_enabled"] = bool(form["copy_enabled"])
             if "target_wallets" in form:
                 base["target_wallets"] = [
                     str(w).strip().lower() for w in form["target_wallets"] if str(w).strip()

@@ -100,6 +100,32 @@ class ThresholdConfig:
 
 
 @dataclass
+class ResolutionConfig:
+    # Resolution-sniping strategy (the bot's default engine). Scans ALL
+    # Polymarket markets closing within `within_hours` and buys any outcome
+    # priced at/above `min_probability` -- the bet being that a near-certain
+    # outcome that close to resolution almost always pays out.
+    enabled: bool = True
+    within_hours: float = 3.0
+    min_probability: float = 0.90
+    # Don't chase near-certainties with no payoff left (and stay within the
+    # risk guard's default max_buy_price of 0.97).
+    max_probability: float = 0.97
+    order_usd: float = 10.0
+    scan_limit: int = 200            # markets to pull per scan
+    min_liquidity_usd: float = 100.0  # skip illiquid/dead markets
+    state_file: str = "data/resolution_state.json"
+
+    def __post_init__(self) -> None:
+        if self.within_hours <= 0:
+            raise ValueError("resolution.within_hours must be > 0")
+        if not 0.5 <= self.min_probability < 1.0:
+            raise ValueError("resolution.min_probability must be in [0.5, 1.0)")
+        if self.max_probability < self.min_probability:
+            raise ValueError("resolution.max_probability must be >= min_probability")
+
+
+@dataclass
 class RiskConfig:
     # Circuit breakers enforced on every order, regardless of which strategy
     # produced it. BUYs (new exposure) get blocked; SELLs (de-risking) are
@@ -167,12 +193,14 @@ class WebConfig:
 @dataclass
 class Config:
     mode: str = "paper"
+    copy_enabled: bool = True
     target_wallets: list[str] = field(default_factory=list)
     watchlist_file: str | None = None
     filters: FilterCriteria = field(default_factory=FilterCriteria)
     consensus: ConsensusConfig = field(default_factory=ConsensusConfig)
     leaderboard: LeaderboardConfig = field(default_factory=LeaderboardConfig)
     threshold: ThresholdConfig = field(default_factory=ThresholdConfig)
+    resolution: ResolutionConfig = field(default_factory=ResolutionConfig)
     risk: RiskConfig = field(default_factory=RiskConfig)
     sizing: SizingConfig = field(default_factory=SizingConfig)
     engine: EngineConfig = field(default_factory=EngineConfig)
@@ -199,12 +227,14 @@ class Config:
 
         cfg = cls(
             mode=os.environ.get("POLYBOT_MODE", raw.get("mode", "paper")),
+            copy_enabled=bool(raw.get("copy_enabled", True)),
             target_wallets=[w.lower() for w in raw.get("target_wallets", [])],
             watchlist_file=raw.get("watchlist_file"),
             filters=FilterCriteria(**raw.get("filters", {})),
             consensus=ConsensusConfig(**raw.get("consensus", {})),
             leaderboard=LeaderboardConfig(**raw.get("leaderboard", {})),
             threshold=ThresholdConfig(**raw.get("threshold", {})),
+            resolution=ResolutionConfig(**raw.get("resolution", {})),
             risk=RiskConfig(**raw.get("risk", {})),
             sizing=SizingConfig(**raw.get("sizing", {})),
             engine=EngineConfig(**raw.get("engine", {})),
