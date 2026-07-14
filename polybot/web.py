@@ -776,6 +776,9 @@ async function loadSettings() {
   }
   modeSel.id = "set-mode";
   top.appendChild(fieldRow("mode", modeSel));
+  const copyChk = document.createElement("input");
+  copyChk.type = "checkbox"; copyChk.id = "set-copy"; copyChk.checked = !!cfg.copy_enabled;
+  top.appendChild(fieldRow("copy trading enabled", copyChk));
   const keyInput = document.createElement("input");
   keyInput.type = "password"; keyInput.id = "set-key";
   keyInput.placeholder = "unchanged";
@@ -837,7 +840,12 @@ function collectSettings() {
     sections[section][name] = v;
   });
   const wallets = el("set-wallets").value.split("\\n").map((s) => s.trim()).filter(Boolean);
-  const body = { mode: el("set-mode").value, target_wallets: wallets, sections };
+  const body = {
+    mode: el("set-mode").value,
+    copy_enabled: el("set-copy").checked,
+    target_wallets: wallets,
+    sections,
+  };
   const key = el("set-key").value.trim();
   if (key) body.live_private_key = key;
   return body;

@@ -16,6 +16,20 @@ configuration anywhere in the codebase -- position sizing only ever accounts
 for your own risk limits (`sizing.*` in the config), never a cut for anyone
 else. See [No fees, anywhere](#no-fees-anywhere) below.
 
+## Strategies
+
+The bot runs one or more strategies at once against a single bankroll and one
+risk guard:
+
+1. **Resolution engine (default)** -- scans every market closing within a few
+   hours and buys any outcome already priced above ~90%, betting that a
+   near-certain outcome that close to resolution pays out at 1.0. On by
+   default (`resolution.enabled: true`).
+2. **Copy-trading** -- mirrors qualified top traders (see below). Toggle with
+   `copy_enabled`.
+3. **Threshold** -- buys a watched market's outcome when it crosses a set
+   probability, with take-profit / stop-loss exits (`threshold.enabled`).
+
 ## Features
 
 - **Paper trading by default** -- a simulated wallet (starting balance,
@@ -93,6 +107,7 @@ polybot/
   leaderboard.py      # scrapes the trader leaderboard to auto-populate the watchlist
   trader_filter.py    # win-rate / volume / position-count filtering
   consensus.py        # optional "X% of top traders agree" gate for BUYs
+  resolution_engine.py # DEFAULT: buy near-certain outcomes in markets closing soon
   threshold_engine.py # standalone "buy when an outcome reaches X% chance" strategy
   sizing.py           # proportional position sizing + risk caps
   risk.py             # circuit breakers wrapped around every order (see below)

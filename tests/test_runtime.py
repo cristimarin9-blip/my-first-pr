@@ -25,12 +25,33 @@ def make_runtime(tmp_path, **cfg_overrides):
     return BotRuntime(cfg, config_path=str(tmp_path / "config.yaml"), env_path=str(tmp_path / ".env"))
 
 
-def test_builds_engines_for_enabled_strategies(tmp_path):
+def test_resolution_is_the_default_engine(tmp_path):
     rt = make_runtime(tmp_path)
-    assert [type(e).__name__ for e in rt.engines] == ["CopyEngine"]
+    names = [type(e).__name__ for e in rt.engines]
+    # resolution runs by default (and first), copy also on by default
+    assert names[0] == "ResolutionEngine"
+    assert "CopyEngine" in names
 
-    rt2 = make_runtime(tmp_path, threshold=ThresholdConfig(enabled=True, markets=["0xabc"]))
-    assert "ThresholdEngine" in [type(e).__name__ for e in rt2.engines]
+
+def test_copy_can_be_disabled(tmp_path):
+    rt = make_runtime(tmp_path, copy_enabled=False)
+    names = [type(e).__name__ for e in rt.engines]
+    assert "CopyEngine" not in names
+    assert names == ["ResolutionEngine"]
+
+
+def test_resolution_can_be_disabled(tmp_path):
+    from polybot.config import ResolutionConfig
+
+    rt = make_runtime(tmp_path, resolution=ResolutionConfig(enabled=False))
+    names = [type(e).__name__ for e in rt.engines]
+    assert "ResolutionEngine" not in names
+    assert names == ["CopyEngine"]
+
+
+def test_threshold_engine_added_when_enabled(tmp_path):
+    rt = make_runtime(tmp_path, threshold=ThresholdConfig(enabled=True, markets=["0xabc"]))
+    assert "ThresholdEngine" in [type(e).__name__ for e in rt.engines]
 
 
 def test_pause_blocks_polling(tmp_path):

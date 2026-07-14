@@ -7,6 +7,25 @@
 # "live"   -> real orders placed on Polymarket's CLOB with your funds
 mode: paper
 
+# The bot can run several strategies at once against one bankroll. The
+# resolution engine (below) is the default. Set copy_enabled: false to turn
+# off copy-trading and run resolution-sniping on its own.
+copy_enabled: true
+
+# --- Resolution engine (DEFAULT strategy) ------------------------------------
+# Scans every market closing within `within_hours` and buys any outcome
+# priced at/above `min_probability` -- betting that a near-certain outcome
+# that close to resolution pays out at 1.0. Runs out of the box.
+resolution:
+  enabled: true
+  within_hours: 3.0          # only markets resolving within this many hours
+  min_probability: 0.90      # buy an outcome priced at/above this
+  max_probability: 0.97      # ...but not above this (no payoff left; also the risk band)
+  order_usd: 10.0            # fixed dollar amount per entry
+  scan_limit: 200            # markets to pull per scan
+  min_liquidity_usd: 100.0   # skip illiquid/dead markets
+  state_file: data/resolution_state.json
+
 # --- Bankroll -----------------------------------------------------------
 paper:
   starting_balance_usd: 1000.0
