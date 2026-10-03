@@ -1,0 +1,736 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Belot Scorekeeper</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Young+Serif&family=Figtree:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: a paper score sheet split down the middle (us | them), the hand entry form under it, history ledger last. */
+:root {
+  --bg: #eef1ee;
+  --paper: #fbfcfa;
+  --ink: #1b2421;
+  --muted: #5d6b66;
+  --line: #d3dbd7;
+  --felt: #1f5a45;
+  --felt-soft: #e1ede7;
+  --on-felt: #ffffff;
+  --red: #b3262e;
+  --red-soft: #f7e3e4;
+  --gold: #8a6510;
+  --gold-soft: #f6ecd2;
+  --font-display: "Young Serif", Georgia, "Times New Roman", serif;
+  --font-body: "Figtree", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --radius: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0d1412; --paper: #151f1c; --ink: #e5ece9; --muted: #96a59f; --line: #2a3833;
+    --felt: #5bb38f; --felt-soft: #1b3229; --on-felt: #0d1412;
+    --red: #ec7a7f; --red-soft: #3a1d20; --gold: #e0b75a; --gold-soft: #33290f;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0d1412; --paper: #151f1c; --ink: #e5ece9; --muted: #96a59f; --line: #2a3833;
+  --felt: #5bb38f; --felt-soft: #1b3229; --on-felt: #0d1412;
+  --red: #ec7a7f; --red-soft: #3a1d20; --gold: #e0b75a; --gold-soft: #33290f;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--ink);
+  font-family: var(--font-body); font-size: 15px; line-height: 1.45;
+  padding-block: 20px 48px; padding-inline: 16px;
+}
+.wrap { max-width: 720px; margin: 0 auto; display: grid; gap: 20px; }
+h1, h2 { font-family: var(--font-display); font-weight: 400; margin: 0; text-wrap: balance; }
+h1 { font-size: 1.6rem; }
+h2 { font-size: 1.15rem; }
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--felt); outline-offset: 2px; }
+.label { font-size: .72rem; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.num { font-variant-numeric: tabular-nums; }
+
+/* Top bar */
+.top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.top-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.target { display: flex; align-items: center; gap: 6px; font-size: .9rem; color: var(--muted); }
+.target input { width: 4.5em; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); }
+
+.btn { border: 1px solid var(--line); background: var(--paper); border-radius: 8px; padding: 8px 14px; font-weight: 600; }
+.btn:hover { border-color: var(--muted); }
+.btn.primary { background: var(--felt); color: var(--on-felt); border-color: var(--felt); }
+.btn.primary:disabled { opacity: .45; cursor: not-allowed; }
+.btn.danger { color: var(--red); }
+
+/* Score sheet */
+.sheet { background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+.sheet-head { display: grid; grid-template-columns: 1fr 1fr; }
+.team { padding: 16px 18px 14px; display: grid; gap: 6px; min-width: 0; }
+.team + .team { border-left: 2px solid var(--ink); }
+.team input.name {
+  border: 0; border-bottom: 1px dashed transparent; background: transparent; padding: 0; width: 100%;
+  font-weight: 600; font-size: .95rem; color: var(--muted);
+}
+.team input.name:hover, .team input.name:focus { border-bottom-color: var(--line); outline: none; }
+.total { font-family: var(--font-display); font-size: clamp(2.6rem, 11vw, 3.6rem); line-height: 1; }
+.bar { height: 6px; border-radius: 3px; background: var(--felt-soft); overflow: hidden; }
+.bar span { display: block; height: 100%; background: var(--felt); transition: width .3s ease; }
+.togo { font-size: .82rem; color: var(--muted); }
+.team.leader .total { color: var(--felt); }
+.banner {
+  border-top: 1px solid var(--line); padding: 12px 18px; display: flex; gap: 12px; align-items: center;
+  justify-content: space-between; flex-wrap: wrap; background: var(--felt-soft);
+}
+.banner strong { font-family: var(--font-display); font-weight: 400; font-size: 1.15rem; }
+.hangnote { border-top: 1px solid var(--line); padding: 10px 18px; font-size: .88rem; background: var(--gold-soft); color: var(--gold); }
+
+/* Hand form */
+.panel { background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; display: grid; gap: 18px; }
+.panel-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.field { display: grid; gap: 8px; }
+.seg { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip {
+  border: 1px solid var(--line); background: var(--paper); border-radius: 999px; padding: 7px 14px;
+  font-weight: 600; display: inline-flex; align-items: center; gap: 6px; min-height: 38px;
+}
+.chip:hover { border-color: var(--muted); }
+.chip[aria-pressed="true"] { background: var(--felt); color: var(--on-felt); border-color: var(--felt); }
+.chip .sym { font-size: 1.15rem; line-height: 1; }
+.chip .sym.red { color: var(--red); }
+.chip[aria-pressed="true"] .sym.red { color: inherit; }
+.chip:disabled { opacity: .4; cursor: not-allowed; }
+
+.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.col { display: grid; gap: 10px; align-content: start; min-width: 0; padding: 12px; border: 1px solid var(--line); border-radius: 8px; }
+.col h3 { margin: 0; font-size: .95rem; font-weight: 700; overflow-wrap: anywhere; }
+.col h3 .bidtag { font-size: .7rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--felt); margin-left: 6px; }
+.tricks { display: flex; align-items: center; gap: 8px; }
+.tricks input {
+  width: 100%; max-width: 7em; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--paper); font-size: 1.15rem; font-variant-numeric: tabular-nums;
+}
+.tricks input:disabled { opacity: .6; }
+.capot { display: flex; align-items: center; gap: 6px; font-size: .9rem; cursor: pointer; }
+.decl-btns { display: flex; flex-wrap: wrap; gap: 6px; }
+.decl-btns button {
+  border: 1px dashed var(--line); background: transparent; border-radius: 6px; padding: 5px 8px; font-size: .82rem; font-weight: 600;
+}
+.decl-btns button:hover:not(:disabled) { border-style: solid; border-color: var(--felt); color: var(--felt); }
+.decl-btns button:disabled { opacity: .35; cursor: not-allowed; }
+.decl-btns button small { font-weight: 500; color: var(--muted); }
+.decl-list { display: flex; flex-wrap: wrap; gap: 6px; min-height: 28px; }
+.tag {
+  display: inline-flex; align-items: center; gap: 4px; border-radius: 6px; padding: 3px 4px 3px 8px;
+  background: var(--felt-soft); font-size: .82rem; font-weight: 600;
+}
+.tag.belot { background: var(--red-soft); color: var(--red); }
+.tag button { border: 0; background: transparent; padding: 0 4px; font-size: 1rem; line-height: 1; color: inherit; opacity: .7; }
+.tag button:hover { opacity: 1; }
+.empty-decl { font-size: .82rem; color: var(--muted); }
+
+.preview {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  border-top: 1px solid var(--line); padding-top: 14px;
+}
+.preview-text { font-size: .92rem; min-width: 0; }
+.preview-text b { font-variant-numeric: tabular-nums; }
+.status { display: inline-block; font-size: .72rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; padding: 2px 7px; border-radius: 4px; margin-right: 6px; }
+.status.made { background: var(--felt-soft); color: var(--felt); }
+.status.inside { background: var(--red-soft); color: var(--red); }
+.status.hanging { background: var(--gold-soft); color: var(--gold); }
+
+/* History ledger */
+.ledger { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+th, td { padding: 9px 8px; text-align: left; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: .72rem; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+td.pts, th.pts { text-align: right; width: 18%; }
+td.pts .run { display: block; font-size: .78rem; color: var(--muted); }
+td.pts.us, th.pts.us { border-right: 2px solid var(--ink); }
+.hand-contract { font-weight: 600; white-space: nowrap; }
+.hand-contract .red { color: var(--red); }
+.hand-meta { font-size: .8rem; color: var(--muted); }
+td.del { width: 1%; }
+td.del button { border: 0; background: transparent; color: var(--muted); padding: 2px 6px; font-size: 1.1rem; }
+td.del button:hover { color: var(--red); }
+.empty { padding: 24px 8px; color: var(--muted); text-align: center; }
+
+details.rules { background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 18px; }
+details.rules summary { cursor: pointer; font-family: var(--font-display); font-size: 1.05rem; }
+.rules-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-top: 14px; font-size: .9rem; }
+.rules-grid h4 { margin: 0 0 6px; font-size: .78rem; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.rules-grid dl { margin: 0; display: grid; grid-template-columns: 1fr auto; gap: 3px 12px; }
+.rules-grid dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+.rules-grid p { margin: 0 0 6px; }
+
+.confirm { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: .9rem; }
+
+@media (max-width: 560px) {
+  .cols { grid-template-columns: 1fr; }
+  .team { padding: 14px 12px; }
+  .panel { padding: 14px; }
+}
+@media (prefers-reduced-motion: reduce) { .bar span { transition: none; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <h1>Belot Scorekeeper</h1>
+    <div class="top-actions">
+      <label class="target" for="target">Play to <input id="target" type="number" min="1" step="1" class="num"></label>
+      <span id="newGameBox"><button class="btn danger" id="newGame" type="button">New game</button></span>
+    </div>
+  </header>
+
+  <section class="sheet" aria-label="Score">
+    <div class="sheet-head">
+      <div class="team" id="team0">
+        <input class="name" id="name0" aria-label="Team 1 name" maxlength="24">
+        <div class="total num" id="total0">0</div>
+        <div class="bar"><span id="bar0" style="width:0"></span></div>
+        <div class="togo num" id="togo0"></div>
+      </div>
+      <div class="team" id="team1">
+        <input class="name" id="name1" aria-label="Team 2 name" maxlength="24">
+        <div class="total num" id="total1">0</div>
+        <div class="bar"><span id="bar1" style="width:0"></span></div>
+        <div class="togo num" id="togo1"></div>
+      </div>
+    </div>
+    <div class="hangnote" id="hangNote" hidden></div>
+    <div class="banner" id="banner" hidden></div>
+  </section>
+
+  <form class="panel" id="handForm" autocomplete="off">
+    <div class="panel-head">
+      <h2 id="handTitle">Hand 1</h2>
+      <span class="label">Enter after the last trick</span>
+    </div>
+
+    <div class="field">
+      <span class="label">Contract won by</span>
+      <div class="seg" id="bidderSeg"></div>
+    </div>
+
+    <div class="field">
+      <span class="label">Contract</span>
+      <div class="seg" id="contractSeg"></div>
+    </div>
+
+    <div class="field">
+      <span class="label">Double</span>
+      <div class="seg" id="multSeg"></div>
+    </div>
+
+    <div class="cols" id="cols"></div>
+
+    <div class="preview">
+      <div class="preview-text" id="preview" aria-live="polite"></div>
+      <button class="btn primary" id="addHand" type="submit">Add hand</button>
+    </div>
+  </form>
+
+  <section class="panel" aria-labelledby="histTitle">
+    <div class="panel-head">
+      <h2 id="histTitle">Score sheet</h2>
+      <button class="btn" id="undo" type="button">Undo last hand</button>
+    </div>
+    <div class="ledger">
+      <table>
+        <thead><tr><th>#</th><th>Contract</th><th class="pts us" id="th0">Us</th><th class="pts" id="th1">Them</th><th class="del"><span class="label" style="position:absolute;left:-9999px">Delete</span></th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <details class="rules">
+    <summary>Scoring reference</summary>
+    <div class="rules-grid">
+      <div>
+        <h4>In a row (sequences)</h4>
+        <dl>
+          <dt>Tierce, 3 in a row</dt><dd>20</dd>
+          <dt>Quarte, 4 in a row</dt><dd>50</dd>
+          <dt>Quint, 5+ in a row</dt><dd>100</dd>
+        </dl>
+      </div>
+      <div>
+        <h4>Four of a kind (carré)</h4>
+        <dl>
+          <dt>Four jacks</dt><dd>200</dd>
+          <dt>Four nines</dt><dd>150</dd>
+          <dt>Four A, K, Q or 10</dt><dd>100</dd>
+        </dl>
+      </div>
+      <div>
+        <h4>Suit bonus and capot</h4>
+        <dl>
+          <dt>Belot, K + Q of trumps</dt><dd>20</dd>
+          <dt>Capot, all 8 tricks</dt><dd>90</dd>
+          <dt>Last trick</dt><dd>10</dd>
+        </dl>
+      </div>
+      <div>
+        <h4>Points in the cards</h4>
+        <dl>
+          <dt>Suit (♣ ♦ ♥ ♠)</dt><dd>162</dd>
+          <dt>All trumps</dt><dd>258</dd>
+          <dt>No trumps (counted ×2)</dt><dd>130</dd>
+        </dl>
+      </div>
+      <div style="grid-column: 1 / -1">
+        <h4>How a hand is scored</h4>
+        <p>Raw points are divided by 10 and rounded. In a suit game 7 and up rounds up (86 → 8, 87 → 9). In all trumps and no trumps 5 and up rounds up.</p>
+        <p>No declarations or belot count in no trumps. In all trumps every K + Q pair counts as a belot.</p>
+        <p><b>Inside:</b> if the team that took the contract scores less than the other team, the other team gets all points from the hand.</p>
+        <p><b>Hanging:</b> on a tie the defenders keep their points. The bidders' points carry over to whoever wins the next hand.</p>
+        <p><b>Double / redouble:</b> the winning team takes every point of the hand, multiplied by 2 or 4.</p>
+        <p>Belot is never lost: it always stays with the team that called it. Enter only the declarations that count after comparing sequences at the table.</p>
+      </div>
+    </div>
+  </details>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  const CONTRACTS = {
+    c:  { label: "Clubs",      sym: "♣",  kind: "suit", red: false },
+    d:  { label: "Diamonds",   sym: "♦",  kind: "suit", red: true },
+    h:  { label: "Hearts",     sym: "♥",  kind: "suit", red: true },
+    s:  { label: "Spades",     sym: "♠",  kind: "suit", red: false },
+    nt: { label: "No trumps",  sym: "A",  kind: "nt",   red: false },
+    at: { label: "All trumps", sym: "J",  kind: "at",   red: false }
+  };
+  const CARD_TOTAL = { suit: 162, nt: 130, at: 258 };
+  const DECL = {
+    t:  { label: "Tierce",     v: 20 },
+    q:  { label: "Quarte",     v: 50 },
+    f:  { label: "Quint",      v: 100 },
+    cj: { label: "Four jacks", v: 200 },
+    c9: { label: "Four nines", v: 150 },
+    c4: { label: "Carré",      v: 100 },
+    b:  { label: "Belot",      v: 20 }
+  };
+  const CAPOT_BONUS = 90;
+  const STORE_KEY = "belot-scorekeeper-v1";
+
+  const $ = (id) => document.getElementById(id);
+
+  // ---------- scoring ----------
+
+  // Raw points → game points. Suits round 7+ up; all trumps / no trumps round 5+ up.
+  function toGame(raw, kind) {
+    const threshold = kind === "suit" ? 6 : 4;
+    return Math.floor(raw / 10) + (raw % 10 > threshold ? 1 : 0);
+  }
+
+  function scoreHand(h) {
+    const kind = CONTRACTS[h.contract].kind;
+    const ntFactor = kind === "nt" ? 2 : 1;
+    const teams = [0, 1];
+    const capot = teams.map((t) => (h.capot === t ? CAPOT_BONUS : 0));
+    const belot = teams.map((t) => kind === "nt" ? 0 : h.decl[t].filter((x) => x === "b").length * DECL.b.v);
+    const decl = teams.map((t) => kind === "nt" ? 0 : h.decl[t].filter((x) => x !== "b").reduce((s, x) => s + DECL[x].v, 0));
+    const pool = teams.map((t) => (h.tricks[t] + capot[t]) * ntFactor + decl[t]);
+    const raw = teams.map((t) => pool[t] + belot[t]);
+
+    const b = h.bidder, d = 1 - b;
+    const award = [0, 0];
+    let hangRaw = 0, status;
+    if (raw[b] > raw[d]) {
+      status = "made";
+      if (h.mult > 1) award[b] = pool[0] + pool[1];
+      else { award[0] = pool[0]; award[1] = pool[1]; }
+    } else if (raw[b] < raw[d]) {
+      status = "inside";
+      award[d] = pool[0] + pool[1];
+    } else {
+      status = "hanging";
+      award[d] = pool[d];
+      hangRaw = pool[b];
+    }
+    const pts = teams.map((t) => toGame(award[t] + belot[t], kind) * h.mult);
+    return { pts, raw, status, hang: toGame(hangRaw, kind) * h.mult };
+  }
+
+  // Runs every hand in order: running totals, hanging points, and the winner.
+  function computeGame(hands, target) {
+    let totals = [0, 0], carry = 0, winner = null, winnerAt = -1;
+    const rows = hands.map((h, i) => {
+      const r = scoreHand(h);
+      const pts = r.pts.slice();
+      let carryIn = 0, carryTo = null;
+      if (carry > 0 && pts[0] !== pts[1]) {
+        carryTo = pts[0] > pts[1] ? 0 : 1;
+        pts[carryTo] += carry;
+        carryIn = carry;
+        carry = 0;
+      }
+      carry += r.hang;
+      totals = [totals[0] + pts[0], totals[1] + pts[1]];
+      if (winner === null && Math.max(totals[0], totals[1]) >= target && totals[0] !== totals[1]) {
+        winner = totals[0] > totals[1] ? 0 : 1;
+        winnerAt = i;
+      }
+      return { hand: h, result: r, pts, carryIn, carryTo, totals: totals.slice() };
+    });
+    return { rows, totals, carry, winner, winnerAt };
+  }
+
+  // ---------- state ----------
+
+  function freshDraft(prev) {
+    return {
+      bidder: prev ? prev.bidder : 0,
+      contract: prev ? prev.contract : "h",
+      mult: 1,
+      tricks: ["", ""],
+      capot: null,
+      decl: [[], []]
+    };
+  }
+
+  let state = { names: ["Us", "Them"], target: 151, hands: [] };
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORE_KEY) || "null");
+    if (saved && Array.isArray(saved.hands)) state = Object.assign(state, saved);
+  } catch (e) { /* storage unavailable: start fresh */ }
+  let draft = freshDraft();
+  let confirmingNewGame = false;
+
+  function save() {
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) { /* ignore */ }
+  }
+
+  function draftKind() { return CONTRACTS[draft.contract].kind; }
+  function draftTotal() { return CARD_TOTAL[draftKind()]; }
+
+  // Returns a hand object when the draft is complete, otherwise an error message.
+  function draftToHand() {
+    const total = draftTotal();
+    let tricks;
+    if (draft.capot !== null) {
+      tricks = [0, 0];
+      tricks[draft.capot] = total;
+    } else {
+      const a = draft.tricks[0], b = draft.tricks[1];
+      if (a === "" && b === "") return { error: "Enter the trick points for either team." };
+      const va = Number(a), vb = Number(b);
+      if (!Number.isInteger(va) || !Number.isInteger(vb) || va < 0 || vb < 0)
+        return { error: "Trick points must be whole numbers." };
+      if (va + vb !== total) return { error: "Trick points must add up to " + total + "." };
+      tricks = [va, vb];
+    }
+    const kind = draftKind();
+    return {
+      hand: {
+        bidder: draft.bidder,
+        contract: draft.contract,
+        mult: draft.mult,
+        tricks,
+        capot: draft.capot,
+        decl: kind === "nt" ? [[], []] : [draft.decl[0].slice(), draft.decl[1].slice()]
+      }
+    };
+  }
+
+  // ---------- rendering ----------
+
+  function el(tag, attrs, children) {
+    const n = document.createElement(tag);
+    if (attrs) for (const k in attrs) {
+      if (k === "class") n.className = attrs[k];
+      else if (k === "text") n.textContent = attrs[k];
+      else if (k.startsWith("on")) n.addEventListener(k.slice(2), attrs[k]);
+      else if (attrs[k] !== false && attrs[k] != null) n.setAttribute(k, attrs[k] === true ? "" : attrs[k]);
+    }
+    (children || []).forEach((c) => n.append(c));
+    return n;
+  }
+
+  function contractLabel(h) {
+    const c = CONTRACTS[h.contract];
+    const frag = document.createDocumentFragment();
+    if (c.kind === "suit") frag.append(el("span", { class: c.red ? "red" : "", text: c.sym + " " }));
+    frag.append(c.label);
+    if (h.mult === 2) frag.append(" ×2");
+    if (h.mult === 4) frag.append(" ×4");
+    return frag;
+  }
+
+  function renderForm(game) {
+    const over = game.winner !== null;
+    $("handTitle").textContent = "Hand " + (state.hands.length + 1);
+
+    const bidSeg = $("bidderSeg");
+    bidSeg.replaceChildren(...[0, 1].map((t) => el("button", {
+      type: "button", class: "chip", "aria-pressed": String(draft.bidder === t),
+      onclick: () => { draft.bidder = t; render(); }
+    }, [state.names[t] || "Team " + (t + 1)])));
+
+    $("contractSeg").replaceChildren(...Object.keys(CONTRACTS).map((key) => {
+      const c = CONTRACTS[key];
+      const kids = c.kind === "suit"
+        ? [el("span", { class: "sym" + (c.red ? " red" : ""), text: c.sym, "aria-hidden": "true" }), c.label]
+        : [c.label];
+      return el("button", {
+        type: "button", class: "chip", "aria-pressed": String(draft.contract === key),
+        onclick: () => {
+          const before = draftTotal();
+          draft.contract = key;
+          if (draftTotal() !== before) draft.tricks = ["", ""];
+          trimBelots();
+          render();
+        }
+      }, kids);
+    }));
+
+    $("multSeg").replaceChildren(...[[1, "None"], [2, "Double ×2"], [4, "Redouble ×4"]].map(([m, label]) =>
+      el("button", {
+        type: "button", class: "chip", "aria-pressed": String(draft.mult === m),
+        onclick: () => { draft.mult = m; render(); }
+      }, [label])));
+
+    const kind = draftKind();
+    const total = draftTotal();
+    const belotLimit = kind === "suit" ? 1 : 4;
+    const belotsUsed = draft.decl[0].filter((x) => x === "b").length + draft.decl[1].filter((x) => x === "b").length;
+
+    $("cols").replaceChildren(...[0, 1].map((t) => {
+      const name = state.names[t] || "Team " + (t + 1);
+      const capotOn = draft.capot === t;
+      const trickVal = draft.capot !== null ? (capotOn ? total : 0) : draft.tricks[t];
+      const input = el("input", {
+        id: "tricks" + t, type: "number", inputmode: "numeric", min: "0", max: String(total), step: "1",
+        placeholder: "0–" + total, value: trickVal, disabled: draft.capot !== null,
+        "aria-label": name + " trick points"
+      });
+      input.addEventListener("input", () => {
+        const v = input.value;
+        draft.tricks[t] = v;
+        const n = Number(v);
+        draft.tricks[1 - t] = v === "" || !Number.isFinite(n) ? "" : String(Math.max(0, total - n));
+        const other = $("tricks" + (1 - t));
+        if (other) other.value = draft.tricks[1 - t];
+        renderPreview(computeGame(state.hands, state.target));
+      });
+
+      const capot = el("label", { class: "capot" }, [
+        el("input", {
+          type: "checkbox", id: "capot" + t, checked: capotOn,
+          onchange: (e) => { draft.capot = e.target.checked ? t : null; render(); }
+        }),
+        "Capot (all tricks)"
+      ]);
+
+      const declBtns = el("div", { class: "decl-btns" }, Object.keys(DECL).map((k) => {
+        const isBelot = k === "b";
+        const disabled = kind === "nt" || (isBelot && belotsUsed >= belotLimit);
+        return el("button", {
+          type: "button", disabled,
+          title: kind === "nt" ? "No declarations in no trumps" : "Add " + DECL[k].label,
+          onclick: () => { draft.decl[t].push(k); render(); }
+        }, [DECL[k].label + " ", el("small", { text: "+" + DECL[k].v })]);
+      }));
+
+      const list = draft.decl[t].length && kind !== "nt"
+        ? draft.decl[t].map((k, i) => el("span", { class: "tag" + (k === "b" ? " belot" : "") }, [
+            DECL[k].label + " " + DECL[k].v,
+            el("button", {
+              type: "button", "aria-label": "Remove " + DECL[k].label, text: "×",
+              onclick: () => { draft.decl[t].splice(i, 1); render(); }
+            })
+          ]))
+        : [el("span", { class: "empty-decl", text: kind === "nt" ? "No declarations in no trumps" : "No declarations" })];
+
+      return el("div", { class: "col" }, [
+        el("h3", {}, [name, draft.bidder === t ? el("span", { class: "bidtag", text: "bid" }) : ""]),
+        el("div", { class: "field" }, [el("span", { class: "label", text: "Trick points" }), el("div", { class: "tricks" }, [input])]),
+        capot,
+        el("div", { class: "field" }, [el("span", { class: "label", text: "Declarations" }), declBtns, el("div", { class: "decl-list" }, list)])
+      ]);
+    }));
+
+    [...$("handForm").querySelectorAll("button, input")].forEach((n) => { if (over) n.disabled = true; });
+    renderPreview(game);
+  }
+
+  function renderPreview(game) {
+    const box = $("preview");
+    const btn = $("addHand");
+    if (game.winner !== null) {
+      box.textContent = "Game over. Undo the last hand or start a new game.";
+      btn.disabled = true;
+      return;
+    }
+    const res = draftToHand();
+    if (res.error) {
+      box.textContent = res.error;
+      btn.disabled = true;
+      return;
+    }
+    btn.disabled = false;
+    const r = scoreHand(res.hand);
+    const n = state.names;
+    const statusText = { made: "Made", inside: "Inside", hanging: "Hanging" }[r.status];
+    box.replaceChildren(
+      el("span", { class: "status " + r.status, text: statusText }),
+      (n[0] || "Team 1") + " ", el("b", { text: String(r.pts[0]) }),
+      " · " + (n[1] || "Team 2") + " ", el("b", { text: String(r.pts[1]) }),
+      r.hang ? " · " + r.hang + " hanging" : "",
+      el("span", { class: "hand-meta", text: "  (raw " + r.raw[0] + " / " + r.raw[1] + ")" })
+    );
+  }
+
+  function renderSheet(game) {
+    const target = state.target;
+    [0, 1].forEach((t) => {
+      const total = game.totals[t];
+      $("total" + t).textContent = total;
+      $("bar" + t).style.width = Math.min(100, (total / target) * 100) + "%";
+      $("togo" + t).textContent = total >= target ? "Reached " + target : (target - total) + " to go";
+      $("team" + t).classList.toggle("leader", total > game.totals[1 - t]);
+      const nameInput = $("name" + t);
+      if (document.activeElement !== nameInput) nameInput.value = state.names[t];
+      $("th" + t).textContent = state.names[t] || "Team " + (t + 1);
+    });
+
+    const hang = $("hangNote");
+    hang.hidden = !(game.carry > 0 && game.winner === null);
+    hang.textContent = game.carry + " points are hanging and go to the winner of the next hand.";
+
+    const banner = $("banner");
+    if (game.winner !== null) {
+      banner.hidden = false;
+      banner.replaceChildren(
+        el("strong", { text: (state.names[game.winner] || "Team " + (game.winner + 1)) + " win " + game.totals[game.winner] + " to " + game.totals[1 - game.winner] }),
+        el("button", { class: "btn primary", type: "button", text: "Play again", onclick: startNewGame })
+      );
+    } else if (game.totals[0] >= target && game.totals[0] === game.totals[1]) {
+      banner.hidden = false;
+      banner.replaceChildren(el("span", { text: "Tied above " + target + ". Play another hand to decide it." }));
+    } else {
+      banner.hidden = true;
+    }
+  }
+
+  function renderRows(game) {
+    const body = $("rows");
+    if (!game.rows.length) {
+      body.replaceChildren(el("tr", {}, [el("td", { colspan: "5", class: "empty", text: "No hands yet. Fill in the first hand above and press Add hand." })]));
+      return;
+    }
+    body.replaceChildren(...game.rows.map((row, i) => {
+      const h = row.hand;
+      const r = row.result;
+      const meta = [];
+      meta.push({ made: "made", inside: "inside", hanging: "hanging" }[r.status]);
+      meta.push("bid by " + (state.names[h.bidder] || "Team " + (h.bidder + 1)));
+      if (h.capot !== null) meta.push("capot");
+      const declCount = h.decl[0].length + h.decl[1].length;
+      if (declCount) {
+        meta.push([0, 1].map((t) => h.decl[t].map((k) => DECL[k].label).join(", ")).filter(Boolean).join(" / "));
+      }
+      if (row.carryIn) meta.push("+" + row.carryIn + " hanging to " + (state.names[row.carryTo] || "Team " + (row.carryTo + 1)));
+      if (r.hang) meta.push(r.hang + " left hanging");
+      return el("tr", {}, [
+        el("td", { class: "num", text: String(i + 1) }),
+        el("td", {}, [el("div", { class: "hand-contract" }, [contractLabel(h)]), el("div", { class: "hand-meta", text: meta.join(" · ") })]),
+        el("td", { class: "pts us num" }, [String(row.pts[0]), el("span", { class: "run", text: String(row.totals[0]) })]),
+        el("td", { class: "pts num" }, [String(row.pts[1]), el("span", { class: "run", text: String(row.totals[1]) })]),
+        el("td", { class: "del" }, [el("button", {
+          type: "button", "aria-label": "Delete hand " + (i + 1), text: "×",
+          onclick: () => { state.hands.splice(i, 1); save(); render(); }
+        })])
+      ]);
+    }).reverse());
+  }
+
+  function renderTop() {
+    const t = $("target");
+    if (document.activeElement !== t) t.value = state.target;
+    const box = $("newGameBox");
+    if (confirmingNewGame) {
+      box.replaceChildren(el("span", { class: "confirm" }, [
+        "Clear all hands?",
+        el("button", { class: "btn danger", type: "button", text: "Clear", onclick: startNewGame }),
+        el("button", { class: "btn", type: "button", text: "Cancel", onclick: () => { confirmingNewGame = false; render(); } })
+      ]));
+    } else {
+      box.replaceChildren(el("button", {
+        class: "btn danger", type: "button", text: "New game", disabled: !state.hands.length,
+        onclick: () => { confirmingNewGame = true; render(); }
+      }));
+    }
+    $("undo").disabled = !state.hands.length;
+  }
+
+  function render() {
+    const game = computeGame(state.hands, state.target);
+    renderTop();
+    renderSheet(game);
+    renderForm(game);
+    renderRows(game);
+  }
+
+  function trimBelots() {
+    const kind = draftKind();
+    if (kind === "nt") return;
+    const limit = kind === "suit" ? 1 : 4;
+    let seen = 0;
+    draft.decl = draft.decl.map((list) => list.filter((k) => k !== "b" || ++seen <= limit));
+  }
+
+  function startNewGame() {
+    state.hands = [];
+    confirmingNewGame = false;
+    draft = freshDraft();
+    save();
+    render();
+  }
+
+  // ---------- events ----------
+
+  $("handForm").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const res = draftToHand();
+    if (res.error) return;
+    if (computeGame(state.hands, state.target).winner !== null) return;
+    state.hands.push(res.hand);
+    draft = freshDraft(draft);
+    save();
+    render();
+  });
+
+  $("undo").addEventListener("click", () => { state.hands.pop(); save(); render(); });
+
+  $("target").addEventListener("change", (e) => {
+    const v = parseInt(e.target.value, 10);
+    state.target = Number.isFinite(v) && v > 0 ? v : 151;
+    save();
+    render();
+  });
+
+  [0, 1].forEach((t) => {
+    $("name" + t).addEventListener("input", (e) => {
+      state.names[t] = e.target.value;
+      save();
+      render();
+    });
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>
