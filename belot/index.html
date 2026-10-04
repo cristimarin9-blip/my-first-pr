@@ -183,6 +183,8 @@ button { cursor: pointer; }
   border-top: 1px solid var(--line); padding-top: 14px;
 }
 .preview-text { font-size: .92rem; min-width: 0; }
+.round-total { font-size: .92rem; padding: 10px 12px; border-radius: 8px; background: var(--felt-soft); }
+.round-total b { font-variant-numeric: tabular-nums; color: var(--felt); }
 .preview-text b { font-variant-numeric: tabular-nums; }
 .status { display: inline-block; font-size: .72rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; padding: 2px 7px; border-radius: 4px; margin-right: 6px; }
 .status.ok { background: var(--felt-soft); color: var(--felt); }
@@ -290,6 +292,8 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
       <div class="special-row" id="belotRow"></div>
       <div class="special-row" id="ruleRow"></div>
     </div>
+
+    <div class="round-total" id="roundTotal"></div>
 
     <div class="preview">
       <div class="preview-text" id="preview" aria-live="polite"></div>
@@ -404,7 +408,8 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
       bile = mode === "1v1" ? after.map((x) => x / 10) : after.map((x) => toBile(Math.round(x)));
     }
     bile = bile.map((x, t) => r1(x - (noCards[t] ? PENALTY : 0)));
-    return { bile, raw, bt, status: bt ? "bt" : "ok" };
+    const sum = raw.reduce((s, x) => s + x, 0);
+    return { bile, raw, bt, status: bt ? "bt" : "ok", total: mode === "1v1" ? sum / 10 : toBile(sum) };
   }
 
   // Parcurge rundele în ordine: totaluri, BT-uri, limita jocului și câștigătorul.
@@ -715,15 +720,15 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
         return el("button", {
           type: "button", disabled,
           title: DECL[k].big && bigBlocked ? "Combinații reduse: a arătat deja două combinații de 100+" : "Adaugă " + DECL[k].long,
-          "aria-label": "Adaugă " + DECL[k].long + ", " + DECL[k].v + " puncte",
+          "aria-label": "Adaugă " + DECL[k].long + ", " + DECL[k].v / 10 + " bile",
           onclick: () => { draft.decl[t].push(k); render(); }
-        }, [cardIcons(k, trump), el("span", {}, [DECL[k].label + " ", el("small", { text: "+" + DECL[k].v })])]);
+        }, [cardIcons(k, trump), el("span", {}, [DECL[k].label + " ", el("small", { text: "+" + DECL[k].v / 10 + " bile" })])]);
       }));
 
       const list = draft.decl[t].length
         ? draft.decl[t].map((k, i) => el("span", { class: "tag" + (k === "b" ? " bela" : "") + ((draft.opt || draft.penalty[t]) && k !== "b" ? " void" : "") }, [
             cardIcons(k, trump),
-            DECL[k].label + " " + DECL[k].v,
+            DECL[k].label + " +" + DECL[k].v / 10,
             el("button", {
               type: "button", "aria-label": "Șterge " + DECL[k].label, text: "×",
               onclick: () => { draft.decl[t].splice(i, 1); render(); }
@@ -731,7 +736,7 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
           ]))
         : [el("span", { class: "empty-decl", text: "Fără combinații" })];
 
-      const pointsRow = [input];
+      const pointsRow = [input, el("span", { class: "remaining", id: "bileOf" + t })];
       if (n > 2 && t === n - 1) {
         const sum = draft.points.reduce((s, x) => s + (Number(x) || 0), 0);
         pointsRow.push(el("span", { class: "remaining", text: "au rămas " + (CARD_TOTAL - sum) + " din " + CARD_TOTAL }));
@@ -780,7 +785,32 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
     renderPreview(game);
   }
 
+  // Din câte bile e runda: 16 din cărți, plus combinațiile, plus bila pentru ultima.
+  function renderRoundTotal() {
+    const n = sideCount();
+    const one = state.mode === "1v1";
+    range(n).forEach((t) => {
+      const span = $("bileOf" + t);
+      const v = draft.points[t];
+      if (span) span.textContent = v === "" || !Number.isFinite(Number(v)) ? "" : "= " + fmt(one ? Number(v) / 10 : toBile(Number(v))) + " bile";
+    });
+    const parts = [];
+    let sum = CARD_TOTAL;
+    range(n).forEach((t) => draft.decl[t].forEach((k) => {
+      if (k !== "b" && (draft.opt || draft.penalty[t])) return;
+      sum += DECL[k].v;
+      parts.push("+ " + DECL[k].v / 10 + " " + DECL[k].label + " (" + sideName(t) + ")");
+    }));
+    if (draft.last !== null && draft.last !== draft.bidder) { sum += 10; parts.push("+ 1 ultima (" + sideName(draft.last) + ")"); }
+    const total = one ? sum / 10 : toBile(sum);
+    $("roundTotal").replaceChildren(
+      "Runda e din ", el("b", { text: fmt(total) + " bile" }),
+      ": " + fmt(one ? CARD_TOTAL / 10 : toBile(CARD_TOTAL)) + " din cărți " + parts.join(" ")
+    );
+  }
+
   function renderPreview(game) {
+    renderRoundTotal();
     const box = $("preview");
     const btn = $("addHand");
     if (game.winner !== null) {
@@ -797,7 +827,7 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
       if (t) parts.push(" · ");
       parts.push(sideName(t) + " ", el("b", { text: fmt(p) }));
     });
-    parts.push(el("span", { class: "hand-meta", text: "  (puncte " + r.raw.join(" / ") + ")" }));
+    parts.push(el("span", { class: "hand-meta", text: "  (în puncte: " + r.raw.join(" / ") + ")" }));
     box.replaceChildren(...parts);
   }
 
@@ -823,7 +853,7 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
       else if (h.type === "incalcare") { title = "Încălcare de regulă"; meta.push(sideName(h.side) + " −" + PENALTY + " bile, runda se reia"); }
       else {
         title = trumpLabel(h.trump);
-        meta.push("cozul ales de " + sideName(h.bidder));
+        meta.push("din " + fmt(r.total) + " bile", "cozul ales de " + sideName(h.bidder));
         if (h.last != null) meta.push("ultima: " + sideName(h.last) + (h.last !== h.bidder ? " (+1 bilă)" : ""));
         if (r.bt) meta.push("BT");
         if (row.btPenalty) meta.push("al " + BT_LIMIT + "-lea BT: −" + PENALTY + " bile");
@@ -870,7 +900,7 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
   }
 
   function renderRules() {
-    const row = (key) => [el("dt", {}, [cardIcons(key, "♥", true), el("span", { text: DECL[key].long })]), el("dd", { text: String(DECL[key].v) })];
+    const row = (key) => [el("dt", {}, [cardIcons(key, "♥", true), el("span", { text: DECL[key].long })]), el("dd", { text: DECL[key].v / 10 + " bile" })];
     const cardsRow = (cards, label, v) => [el("dt", {}, [cardRow(cards, "lg tight"), el("span", { text: label })]), el("dd", { text: v })];
     const plain = (label, v) => [el("dt", {}, [el("span"), el("span", { text: label })]), el("dd", { text: v })];
     const block = (title, kids) => el("div", {}, [el("h4", { text: title }), el("dl", {}, kids.flat())]);
@@ -892,6 +922,7 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
       el("div", { class: "rules-wide" }, [
         el("h4", { text: "Cum se calculează bilele" }),
         p("Puncte în bile:", "10 puncte = 1 bilă, 35 puncte = 3 bile, 66 puncte = 7 bile. 5 se rotunjește în jos, 6 în sus."),
+        p("Din câte bile e runda:", "cărțile dau 162 de puncte, adică 16 bile. Fiecare combinație ridică totalul: un terț și o bela fac runda din 16 + 2 + 2 = 20 de bile."),
         p("1 vs 1:", "în tabelă se scriu bilele nerotunjite, adică punctele împărțite la 10 (de exemplu 6,4)."),
         p("În perechi:", "fiecare pereche primește bilele rotunjite ale punctelor sale. Dacă punctele sunt egale, bilele se împart egal (106 la 106 înseamnă 11 la 11). Nu există sistemul „ouălelor”."),
         p("În 3 și în 4:", "se adună bilele rotunjite ale celor care nu au jucat și se scad din totalul jocului. Restul îi revine celui care a jucat. Exemplu: X joacă cu 64 de puncte, Y are 53, Z are 65. Jocul e din 18 bile (182 de puncte), Y primește 5, Z primește 6, iar X primește 18 − 11 = 7 bile. Se compară întâi bilele, apoi, la egalitate de bile, punctele."),

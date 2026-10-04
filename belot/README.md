@@ -9,7 +9,7 @@ Ce urmărește:
 - O bilă în plus pentru jucătorul care ia ultima mână, dacă nu el a ales cozul (socotită înainte de BT).
 - Numele jucătorilor se pot schimba oricând.
 - Editarea și ștergerea ultimei runde.
-- Punctele din cărți (162 cu ultima mână) transformate în bile: 10 = 1, 35 = 3, 66 = 7.
+- Punctele din cărți (162 cu ultima mână) transformate în bile: 10 = 1, 35 = 3, 66 = 7. Runda e din 16 bile, plus combinațiile (terț +2, bela +2 etc.).
 - Combinațiile, cu desenul cărților: terț 20, jumate de sută 50, o sută 100, patru de 10/D/K/A 100, patru de nouă 150, patru de valet 200, bela 20.
 - BT pentru cel care a ales cozul și a luat mai puțin: punctele lui se împart între ceilalți, el păstrează doar bela. La fiecare al treilea BT, −10.
 - −10 bile pentru jucătorul care nu a luat nicio carte; combinațiile lui nu se mai socotesc (bela rămâne).
