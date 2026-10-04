@@ -150,22 +150,25 @@ button { cursor: pointer; }
 .tag.belot { background: var(--red-soft); }
 .tag button { border: 0; background: transparent; padding: 0 4px; font-size: 1rem; line-height: 1; color: inherit; opacity: .7; }
 .tag button:hover { opacity: 1; }
+.penalty { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.pen-btn { border: 1px dashed var(--line); background: transparent; border-radius: 8px; padding: 5px 10px; font-size: .85rem; font-weight: 700; color: var(--red); }
+.pen-btn:hover:not(:disabled) { border-style: solid; border-color: var(--red); }
+.pen-btn small { font-weight: 500; color: var(--muted); }
+.tag.pen { background: var(--red-soft); color: var(--red); }
 .empty-decl { font-size: .82rem; color: var(--muted); }
 
 /* Playing-card icons */
 .cards { display: inline-flex; align-items: center; }
 .card {
   display: inline-grid; grid-template-rows: auto auto; place-items: center; align-content: center;
-  width: 1.7em; height: 2.2em; border: 1px solid var(--card-edge); border-radius: 3px;
+  width: 2em; height: 2.3em; border: 1px solid var(--card-edge); border-radius: 3px;
   background: var(--card); color: #1b2421; font-size: .72rem; font-weight: 700; line-height: 1;
   box-shadow: 0 1px 0 rgba(0, 0, 0, .08); font-variant-numeric: tabular-nums;
 }
 .card + .card { margin-left: -.3em; }
-.card.ten { letter-spacing: -.08em; font-size: .64rem; }
 .card.red { color: #b3262e; }
 .card i { font-style: normal; font-size: .95em; }
 .cards.lg .card { font-size: .85rem; }
-.cards.lg .card.ten { font-size: .76rem; }
 .cards.lg .card + .card { margin-left: -.3em; }
 
 .preview {
@@ -318,6 +321,7 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
     b:  { label: "Belot",      long: "Belot, K + Q of trumps", v: 20, cards: (s) => [["K", s], ["Q", s]] }
   };
   const CAPOT_BONUS = 90;
+  const PENALTY = 10;
   const STORE_KEY = "belot-scorekeeper-v1";
   const DEFAULT_TEAMS = ["Us", "Them"];
   const DEFAULT_PLAYERS = ["Player 1", "Player 2", "Player 3", "Player 4"];
@@ -367,6 +371,9 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
       hangRaw = pool[b];
     }
     const pts = sides.map((t) => toGame(award[t] + belot[t], kind) * h.mult);
+    // Penalties (no tricks taken, or a broken rule) are 10 game points each and are not doubled.
+    const pen = h.penalty || [];
+    sides.forEach((t) => { pts[t] -= (pen[t] || 0) * PENALTY; });
     return { pts, raw, status, hang: toGame(hangRaw, kind) * h.mult };
   }
 
@@ -422,7 +429,8 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
       tricks: range(n).map(() => ""),
       manual: range(n).map(() => false),
       capot: null,
-      decl: range(n).map(() => [])
+      decl: range(n).map(() => []),
+      penalty: range(n).map(() => 0)
     };
   }
 
@@ -459,7 +467,8 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
         mult: draft.mult,
         tricks,
         capot: draft.capot,
-        decl: kind === "nt" ? range(n).map(() => []) : draft.decl.map((l) => l.slice())
+        decl: kind === "nt" ? range(n).map(() => []) : draft.decl.map((l) => l.slice()),
+        penalty: draft.penalty.slice()
       }
     };
   }
@@ -495,7 +504,7 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
   function cardIcons(declKey, trump, large) {
     const list = DECL[declKey].cards(trump);
     return el("span", { class: "cards" + (large ? " lg" : ""), "aria-hidden": "true" }, list.map(([rank, suit]) =>
-      el("span", { class: "card" + (suit === "♥" || suit === "♦" ? " red" : "") + (rank === "10" ? " ten" : "") }, [rank, el("i", { text: suit })])));
+      el("span", { class: "card" + (suit === "♥" || suit === "♦" ? " red" : "") }, [rank, el("i", { text: suit })])));
   }
 
   function contractLabel(h) {
@@ -682,6 +691,20 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
         el("h3", {}, [name, draft.bidder === t ? el("span", { class: "bidtag", text: "bid" }) : ""]),
         el("div", { class: "field" }, [el("span", { class: "label", text: "Trick points" }), el("div", { class: "tricks" }, trickRow)]),
         capot,
+        el("div", { class: "penalty" }, [
+          el("button", {
+            type: "button", class: "pen-btn", title: "Took no tricks or broke a rule",
+            "aria-label": "Give " + name + " a 10 point penalty",
+            onclick: () => { draft.penalty[t]++; render(); }
+          }, ["−10 ", el("small", { text: "no tricks or broke a rule" })]),
+          draft.penalty[t] ? el("span", { class: "tag pen" }, [
+            "−" + draft.penalty[t] * PENALTY,
+            el("button", {
+              type: "button", "aria-label": "Remove one penalty", text: "×",
+              onclick: () => { draft.penalty[t]--; render(); }
+            })
+          ]) : ""
+        ]),
         el("div", { class: "field" }, [el("span", { class: "label", text: "Declarations" }), declBtns, el("div", { class: "decl-list" }, list)])
       ]);
     }));
@@ -739,6 +762,7 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
         if (list.length) meta.push(sideName(t) + ": " + list.map((k) => DECL[k].label).join(", "));
       });
       if (row.carryIn) meta.push("+" + row.carryIn + " hanging to " + sideName(row.carryTo));
+      (h.penalty || []).forEach((c, t) => { if (c) meta.push(sideName(t) + " penalty −" + c * PENALTY); });
       if (r.hang) meta.push(r.hang + " left hanging");
       return el("tr", {}, [
         el("td", { class: "num", text: String(i + 1) }),
@@ -779,7 +803,7 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
     $("rulesGrid").replaceChildren(
       block("In a row (same suit)", [row("t"), row("q"), row("f")]),
       block("Four of a kind (carré)", [row("cj"), row("c9"), row("c4")]),
-      block("Suit bonus and capot", [row("b"), plain("Capot, one side takes all 8 tricks", "90"), plain("Last trick", "10")]),
+      block("Suit bonus and capot", [row("b"), plain("Capot, one side takes all 8 tricks", "90"), plain("Last trick", "10"), plain("Penalty, no tricks or a broken rule", "−10")]),
       block("Points in the cards", [plain("Suit (♣ ♦ ♥ ♠)", "162"), plain("All trumps", "258"), plain("No trumps, counted ×2", "130")]),
       el("div", { class: "rules-wide" }, [
         el("h4", { text: "How a hand is scored" }),
@@ -789,6 +813,7 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
         p("Inside:", "if the side that took the contract scores less than an opponent, it loses its points. With two teams the defenders get everything. With individual players the bidder's points are shared equally among the other players."),
         p("Hanging:", "on a tie, the opponents keep their points. The bidder's points carry over to whoever scores most in the next hand."),
         p("Double / redouble:", "if the contract is made the bidder takes every point of the hand. Everything is multiplied by 2 or 4."),
+        p("Penalty:", "−10 game points for a side that took no tricks or broke a rule. It comes off after the hand is scored and is not doubled."),
         p("Belot is never lost:", "it always stays with the side that called it. Enter only the declarations that count after comparing sequences at the table.")
       ])
     );
