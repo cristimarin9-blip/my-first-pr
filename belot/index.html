@@ -339,7 +339,7 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
   };
   const ALL_SUITS = ["♠", "♥", "♦", "♣"];
   const CARD_TOTAL = 152; // punctele din cărți, fără ultima mână
-  const LAST_TRICK = 10;  // ultima mână: 10 puncte (1 bilă), parte din cele 16 bile ale rundei
+  const LAST_TRICK = 10;  // ultima mână: 10 puncte (1 bilă), doar dacă n-o ia cel care a ales cozul
   // `cards(coz)` arată din ce cărți e făcută combinația, ca perechi [rang, culoare].
   const DECL = {
     t:  { label: "Terț",            long: "Terț, 3 cărți la rând de aceeași culoare",        v: 20,  big: false, cards: (s) => ["9", "10", "J"].map((r) => [r, s]) },
@@ -386,10 +386,11 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
     const bela = sides.map((t) => noCards[t] ? 0 : h.decl[t].filter((x) => x === "b").length * DECL.b.v);
     const comb = sides.map((t) => h.opt || noCards[t] ? 0 : h.decl[t].filter((x) => x !== "b").reduce((s, x) => s + DECL[x].v, 0));
     const b = h.bidder;
-    // Ultima mână: cele 10 puncte (1 bilă) le primește cine a luat-o, înainte de a stabili BT-ul.
+    // Ultima mână: cele 10 puncte (1 bilă) se socotesc doar dacă o ia altcineva decât cel care a ales cozul.
+    // Dacă o ia el, nu se socotesc deloc. Se adaugă înainte de a stabili BT-ul.
     // Rundele salvate înainte aveau ultima inclusă în puncte (162); cele noi o adaugă aici celui care a luat-o.
     const hasLast = h.points.reduce((s, x) => s + x, 0) === CARD_TOTAL;
-    const extra = sides.map((t) => (hasLast && h.last === t ? LAST_TRICK : 0));
+    const extra = sides.map((t) => (hasLast && h.last === t && t !== b ? LAST_TRICK : 0));
     const raw = sides.map((t) => h.points[t] + comb[t] + bela[t] + extra[t]);
     const opps = sides.filter((t) => t !== b);
     let bile, bt;
@@ -798,11 +799,13 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
     range(n).forEach((t) => {
       const span = $("bileOf" + t);
       const v = draft.points[t];
-      const pts = Number(v) + (draft.last === t ? LAST_TRICK : 0);
-      if (span) span.textContent = v === "" || !Number.isFinite(Number(v)) ? "" : "= " + fmt(one ? pts / 10 : toBile(pts)) + " bile" + (draft.last === t ? " cu ultima" : "");
+      const withLast = draft.last === t && t !== draft.bidder;
+      const pts = Number(v) + (withLast ? LAST_TRICK : 0);
+      if (span) span.textContent = v === "" || !Number.isFinite(Number(v)) ? "" : "= " + fmt(one ? pts / 10 : toBile(pts)) + " bile" + (withLast ? " cu ultima" : "");
     });
     const parts = [];
-    let sum = CARD_TOTAL + LAST_TRICK;
+    const lastCounts = draft.last !== null && draft.last !== draft.bidder;
+    let sum = CARD_TOTAL + (lastCounts ? LAST_TRICK : 0);
     range(n).forEach((t) => draft.decl[t].forEach((k) => {
       if (draft.penalty[t] || (k !== "b" && draft.opt)) return;
       sum += DECL[k].v;
@@ -811,8 +814,10 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
     const total = one ? sum / 10 : toBile(sum);
     $("roundTotal").replaceChildren(
       "Runda e din ", el("b", { text: fmt(total) + " bile" }),
-      ": " + fmt(one ? (CARD_TOTAL + LAST_TRICK) / 10 : toBile(CARD_TOTAL + LAST_TRICK)) + " din cărți (cu ultima" +
-        (draft.last !== null ? ", luată de " + sideName(draft.last) : "") + ") " + parts.join(" ")
+      ": " + fmt(one ? (CARD_TOTAL + (lastCounts ? LAST_TRICK : 0)) / 10 : toBile(CARD_TOTAL + (lastCounts ? LAST_TRICK : 0))) + " din cărți " +
+        (draft.last === null ? "(alegeți cine a luat ultima)"
+          : lastCounts ? "(cu ultima, luată de " + sideName(draft.last) + ")"
+          : "(ultima a luat-o cel care a ales cozul, nu se socotește)") + " " + parts.join(" ")
     );
   }
 
@@ -863,7 +868,7 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
       else {
         title = trumpLabel(h.trump);
         meta.push("din " + fmt(r.total) + " bile", "cozul ales de " + sideName(h.bidder));
-        if (h.last != null) meta.push("ultima: " + sideName(h.last));
+        if (h.last != null) meta.push("ultima: " + sideName(h.last) + (h.last === h.bidder ? " (nu se socotește)" : " (+1 bilă)"));
         if (r.bt) meta.push("BT");
         if (row.btPenalty) meta.push("al " + BT_LIMIT + "-lea BT: −" + PENALTY + " bile");
         if (h.opt) meta.push("patru de opt: combinațiile anulate");
@@ -927,17 +932,17 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
       block("Valoarea cărților", [
         plain("Șapte, opt, nouă", "0"), plain("Nouă de coz", "14"), plain("Zece", "10"),
         plain("Valet", "2"), plain("Valet de coz", "20"), plain("Damă", "3"), plain("Crai", "4"), plain("Tuz", "11"),
-        plain("Ultima mână", "+10")
+        plain("Ultima mână (nu la cel cu cozul)", "+10")
       ]),
       el("div", { class: "rules-wide" }, [
         el("h4", { text: "Cum se calculează bilele" }),
         p("Puncte în bile:", "10 puncte = 1 bilă, 35 puncte = 3 bile, 66 puncte = 7 bile. 5 se rotunjește în jos, 6 în sus."),
-        p("Din câte bile e runda:", "cărțile dau 152 de puncte, plus 10 pentru ultima mână: 162 de puncte, adică 16 bile. Fiecare combinație ridică totalul: un terț și o bela fac runda din 16 + 2 + 2 = 20 de bile."),
+        p("Din câte bile e runda:", "cărțile dau 152 de puncte (15 bile), plus 10 pentru ultima mână dacă n-o ia cel care a ales cozul: 162 de puncte, adică 16 bile. Fiecare combinație ridică totalul: un terț și o bela fac runda din 16 + 2 + 2 = 20 de bile."),
         p("1 vs 1:", "în tabelă se scriu bilele nerotunjite, adică punctele împărțite la 10 (de exemplu 6,4)."),
         p("În perechi:", "fiecare pereche primește bilele rotunjite ale punctelor sale. Dacă punctele sunt egale, bilele se împart egal (106 la 106 înseamnă 11 la 11). Nu există sistemul „ouălelor”."),
         p("În 3 și în 4:", "se adună bilele rotunjite ale celor care nu au jucat și se scad din totalul jocului. Restul îi revine celui care a jucat. Exemplu: X joacă cu 64 de puncte, Y are 53, Z are 65. Jocul e din 18 bile (182 de puncte), Y primește 5, Z primește 6, iar X primește 18 − 11 = 7 bile. Se compară întâi bilele, apoi, la egalitate de bile, punctele."),
         p("BT:", "dacă cel care a ales cozul are mai puțin decât un adversar, i se scrie BT. Punctele lui se împart în mod egal între ceilalți jucători, iar el păstrează doar Bela. La fiecare al treilea BT (3, 6, 9...) jucătorul primește −10."),
-        p("Ultima mână:", "valorează 10 puncte (1 bilă) și face parte din cele 16 bile ale rundei, nu se adaugă peste ele. O primește cine a luat ultima mână, chiar dacă nu el a ales cozul, și se socotește înainte de a stabili BT-ul. De aceea punctele din cărți se scriu fără ultima (152 în total)."),
+        p("Ultima mână:", "valorează 10 puncte (1 bilă), dar se socotește doar dacă o ia altcineva decât cel care a ales cozul. Atunci bila îi revine lui și runda e din 16 bile. Dacă ultima o ia cel care a ales cozul, nu se socotește deloc și runda e din 15 bile. Bila se adaugă înainte de a stabili BT-ul. De aceea punctele din cărți se scriu fără ultima (152 în total)."),
         p("Bela", "rămâne celui care o are, chiar și cu BT. Se pierde doar dacă jucătorul nu ia nicio carte."),
         p("Combinațiile", "se adaugă la punctele totale ale rundei, în afară de cazul în care jucătorul care le are nu ia nicio carte. Atunci primește −10 bile și nicio combinație a lui nu se socotește, nici Bela."),
         p("Încălcare de regulă:", "jucătorul care încalcă o regulă primește −10 bile, iar runda se reia de la început (se scrie ca o rundă separată, fără alte puncte)."),
