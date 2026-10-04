@@ -29,6 +29,10 @@
 .game .meta { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
 .soon { border-style: dashed; background: transparent; }
 .soon .glyph { background: var(--line); color: var(--muted); }
+/* A game opens over the menu so it can use the menu's photo reading. */
+.gameview { position: fixed; inset: 0; z-index: 10; background: var(--bg); padding-top: env(safe-area-inset-top, 0px); }
+.gameview iframe { border: 0; width: 100%; height: 100%; display: block; background: var(--bg); }
+.photo-tag { display: inline-flex; align-items: center; gap: 4px; }
 </style>
 </head>
 <body>
@@ -38,6 +42,10 @@
     <p>Pick a game to keep score. Each game remembers its own scores on this device, so you can switch between them.</p>
   </header>
   <nav class="games" id="games" aria-label="Games"></nav>
+  <p class="small muted" id="photoNote" hidden>Games with a camera button can read scores from a photo. You check the result before it is added.</p>
+</div>
+<div class="gameview" id="gameView" hidden>
+  <iframe id="gameFrame" title="Game score sheet"></iframe>
 </div>
 <script src="shared.js"></script>
 <script>
@@ -47,34 +55,57 @@
 
   // Add a new game here: its page, its name, and the storage key its page saves to.
   const GAMES = [
-    { file: "belot.html", name: "Belot", glyph: "♥", color: "#b3262e", players: "2–4 players",
+    { file: "belot.html", name: "Belot", glyph: "♥", color: "#b3262e", players: "2–4 players", photo: "cards",
       blurb: "Moldovan rules: bile, BT, combinations, last hand.", key: "belot-moldova-v1",
       inProgress: (s) => s && s.hands && s.hands.length },
-    { file: "carcassonne.html", name: "Carcassonne", glyph: "C", color: "#3f7d3a", players: "2–6 players",
+    { file: "carcassonne.html", name: "Carcassonne", glyph: "C", color: "#3f7d3a", players: "2–6 players", photo: "features",
       blurb: "Roads, cities, monasteries, fields, with expansion scoring.", key: "gs-carcassonne-v1",
       inProgress: (s) => s && s.log && s.log.length },
-    { file: "mexican-train.html", name: "Mexican Train", glyph: "▚", color: "#c2571a", players: "2–8 players",
+    { file: "mexican-train.html", name: "Mexican Train", glyph: "▚", color: "#c2571a", players: "2–8 players", photo: "dominoes",
       blurb: "Round-by-round pip totals, lowest total wins.", key: "gs-mexican-train-v1",
       inProgress: (s) => s && s.rounds && s.rounds.length },
-    { file: "catan.html", name: "Catan", glyph: "⬢", color: "#c9921a", players: "3–6 players",
+    { file: "catan.html", name: "Catan", glyph: "⬢", color: "#c9921a", players: "3–6 players", photo: "board",
       blurb: "Live victory points, Longest Road, Largest Army, Seafarers, Cities & Knights.", key: "gs-catan-v1",
       inProgress: (s) => s && s.started },
-    { file: "ticket-to-ride.html", name: "Ticket to Ride", glyph: "▬", color: "#2f6fd1", players: "2–5 players",
+    { file: "ticket-to-ride.html", name: "Ticket to Ride", glyph: "▬", color: "#2f6fd1", players: "2–5 players", photo: "tickets",
       blurb: "Routes, tickets, stations and bonuses for USA, Europe and Nordic maps.", key: "gs-ticket-to-ride-v1",
       inProgress: (s) => s && s.started }
   ];
 
+  // Photo reading lives here, on the main page; games opened below borrow it.
+  window.GS_photo = GS.makePhotoApi();
+  let photoOk = false;
+  window.GS_photo.available().then((ok) => { photoOk = ok; document.getElementById("photoNote").hidden = !ok; renderGames(); });
+
+  const view = document.getElementById("gameView");
+  const frame = document.getElementById("gameFrame");
+  function openGame(g) {
+    frame.src = g.file;
+    view.hidden = false;
+    document.body.style.overflow = "hidden";
+    try { history.replaceState(null, "", "#" + g.file.replace(".html", "")); } catch (e) { /* ignore */ }
+  }
+  window.GS_closeGame = function () {
+    view.hidden = true;
+    frame.removeAttribute("src");
+    document.body.style.overflow = "";
+    try { history.replaceState(null, "", location.pathname + location.search); } catch (e) { /* ignore */ }
+    renderGames();
+  };
+
+  function renderGames() {
   document.getElementById("games").replaceChildren(
     ...GAMES.map((g) => {
       const saved = load(g.key, null);
       const busy = g.inProgress(saved);
-      return el("a", { class: "game", href: g.file }, [
+      return el("a", { class: "game", href: g.file, onclick: (e) => { e.preventDefault(); openGame(g); } }, [
         el("span", { class: "glyph", style: { background: g.color }, text: g.glyph, "aria-hidden": "true" }),
         el("h2", { text: g.name }),
         el("p", { text: g.blurb }),
         el("div", { class: "meta" }, [
           el("span", { class: "tag gold", text: g.players }),
-          busy ? el("span", { class: "tag", text: "Game in progress" }) : null
+          busy ? el("span", { class: "tag", text: "Game in progress" }) : null,
+          photoOk && g.photo ? el("span", { class: "tag photo-tag", text: "Photo: " + g.photo }) : null
         ])
       ]);
     }),
@@ -84,6 +115,12 @@
       el("p", { text: "New score sheets can be added to this menu later." })
     ])
   );
+  }
+
+  renderGames();
+  // A link ending in #catan (or another game) opens that game straight away.
+  const start = GAMES.find((g) => location.hash === "#" + g.file.replace(".html", ""));
+  if (start) openGame(start);
 })();
 </script>
 </body>

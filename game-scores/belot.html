@@ -161,6 +161,16 @@ button { cursor: pointer; }
 .nocards b { color: var(--red); font-weight: 700; }
 .nocards small { color: var(--muted); }
 
+.photo-btn { display: inline-flex; align-items: center; gap: 6px; justify-self: start; }
+.review { display: grid; gap: 8px; padding: 10px; border-radius: 8px; border: 1px solid var(--felt); background: var(--felt-soft); }
+.review .review-head { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; font-weight: 700; font-size: .9rem; }
+.review .items { display: flex; flex-wrap: wrap; gap: 6px; }
+.review .item { display: inline-flex; align-items: center; gap: 2px; padding: 2px 2px 2px 4px; border-radius: 6px; background: var(--paper); border: 1px solid var(--line); }
+.review .item.unsure { border-color: var(--gold); background: var(--gold-soft); }
+.review .item select { padding: 2px; border: 1px solid var(--line); border-radius: 4px; background: var(--paper); }
+.review .item button { border: 0; background: transparent; color: var(--muted); padding: 0 4px; font-size: 1rem; }
+.review .warn { font-size: .82rem; color: var(--gold); }
+.review .actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .special { display: grid; gap: 10px; padding: 12px; border: 1px dashed var(--line); border-radius: 8px; }
 .special-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: .9rem; }
 .special-row .btn { padding: 6px 10px; font-size: .85rem; display: inline-flex; align-items: center; gap: 8px; }
@@ -332,6 +342,7 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
   </details>
 </div>
 
+<script src="shared.js"></script>
 <script>
 (function () {
   "use strict";
@@ -685,6 +696,80 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
     }
   }
 
+  // ---------- poză cu cărțile luate ----------
+  // Claude recunoaște cărțile; punctele le calculează aplicația după coz.
+  const RANKS = ["7", "8", "9", "10", "J", "Q", "K", "A"];
+  const SUIT_KEYS = ["c", "d", "h", "s"];
+  const TRUMP_VAL = { "7": 0, "8": 0, "9": 14, "10": 10, J: 20, Q: 3, K: 4, A: 11 };
+  const PLAIN_VAL = { "7": 0, "8": 0, "9": 0, "10": 10, J: 2, Q: 3, K: 4, A: 11 };
+  let cardReviews = {}; // [t]: { status, cards: [{r, s, sure}], notes, error }
+  const cardPoints = (c) => (c.s === draft.trump ? TRUMP_VAL : PLAIN_VAL)[c.r] || 0;
+  const CARD_PROMPT = "This photo shows playing cards won in tricks by one player or team in a game of belot (32-card deck: 7, 8, 9, 10, J, Q, K, A in four suits). "
+    + "The cards may be spread out or overlapping. Identify every card you can see. "
+    + 'Reply with only JSON in this shape: {"cards":[{"rank":"10","suit":"hearts","sure":true}],"notes":""}. '
+    + 'rank is one of 7, 8, 9, 10, J, Q, K, A (use J for jack/valet, Q for queen/dama, K for king/crai, A for ace/tuz). '
+    + 'suit is one of clubs, diamonds, hearts, spades. Set "sure" to false for a card that is partly hidden or hard to read. '
+    + 'Use "notes" for anything to check, such as cards that may be hidden under others. Write notes in Romanian.';
+  async function readCards(t, file) {
+    cardReviews[t] = { status: "reading" };
+    render();
+    try {
+      const r = await GS.readPhoto(file, CARD_PROMPT);
+      const suitMap = { clubs: "c", diamonds: "d", hearts: "h", spades: "s" };
+      const list = Array.isArray(r && r.cards) ? r.cards : [];
+      cardReviews[t] = { status: "done", notes: typeof r.notes === "string" ? r.notes : "",
+        cards: list.map((c) => {
+          const rank = String(c.rank || "").toUpperCase().replace("JACK", "J").replace("QUEEN", "Q").replace("KING", "K").replace("ACE", "A");
+          const suit = suitMap[String(c.suit || "").toLowerCase()];
+          const ok = RANKS.includes(rank) && suit;
+          return { r: ok ? rank : "7", s: suit || "c", sure: ok ? c.sure !== false : false };
+        }) };
+    } catch (e) {
+      cardReviews[t] = { status: "error", error: GS.photoError(e, "ro") };
+    }
+    render();
+  }
+  function cardReview(t) {
+    const rv = cardReviews[t];
+    if (!rv) return "";
+    if (rv.status === "reading") return el("div", { class: "hint", text: "Se citește poza… poate dura până la un minut." });
+    if (rv.status === "error") return el("div", { class: "review" }, [el("span", { class: "warn", text: rv.error }),
+      el("div", { class: "actions" }, [el("button", { type: "button", class: "btn", text: "Închide", onclick: () => { delete cardReviews[t]; render(); } })])]);
+    const total = rv.cards.reduce((sum, c) => sum + cardPoints(c), 0);
+    const seen = {}, dups = new Set();
+    rv.cards.forEach((c) => { const k = c.r + c.s; if (seen[k]) dups.add(k); seen[k] = true; });
+    const unsure = rv.cards.filter((c) => !c.sure).length;
+    const pick = (c, key, opts) => {
+      const sel = el("select", { "aria-label": key === "r" ? "Rang" : "Culoare" }, opts.map(([v, label]) => el("option", { value: v, text: label, selected: c[key] === v })));
+      sel.addEventListener("change", () => { c[key] = sel.value; c.sure = true; render(); });
+      return sel;
+    };
+    return el("div", { class: "review" }, [
+      el("div", { class: "review-head" }, [el("span", { text: rv.cards.length + " cărți, " + total + " puncte" }),
+        unsure ? el("span", { class: "bt-count", text: unsure + " de verificat" }) : el("span", { class: "hint", text: "toate citite clar" })]),
+      el("div", { class: "items" }, rv.cards.map((c, k) => el("span", { class: "item" + (c.sure && !dups.has(c.r + c.s) ? "" : " unsure") }, [
+        pick(c, "r", RANKS.map((x) => [x, x])), pick(c, "s", SUIT_KEYS.map((x) => [x, SUITS[x].sym])),
+        el("button", { type: "button", text: "×", "aria-label": "Șterge cartea", onclick: () => { rv.cards.splice(k, 1); render(); } })
+      ])).concat([el("button", { type: "button", class: "btn", text: "+ Carte", onclick: () => { rv.cards.push({ r: "7", s: "c", sure: false }); render(); } })])),
+      dups.size ? el("span", { class: "warn", text: "Aceeași carte apare de două ori. Verificați." }) : "",
+      unsure ? el("span", { class: "warn", text: "Cărțile evidențiate nu s-au văzut clar. Corectați-le sau confirmați-le." }) : "",
+      rv.notes ? el("span", { class: "warn", text: rv.notes }) : "",
+      el("div", { class: "actions" }, [
+        el("button", { type: "button", class: "btn", text: "Renunță", onclick: () => { delete cardReviews[t]; render(); } }),
+        unsure ? el("button", { type: "button", class: "btn", text: "Sunt corecte", onclick: () => { rv.cards.forEach((c) => { c.sure = true; }); render(); } }) : "",
+        el("button", { type: "button", class: "btn primary", text: "Folosește " + total + " puncte", disabled: unsure > 0 || dups.size > 0,
+          onclick: () => {
+            draft.points[t] = String(total);
+            draft.manual[t] = true;
+            if (sideCount() === 2) draft.manual[1 - t] = false;
+            autofillPoints(t);
+            delete cardReviews[t];
+            render();
+          } })
+      ])
+    ]);
+  }
+
   function renderForm() {
     const game = computeGame(baseHands(), state.target, state.mode);
     const over = game.winner !== null;
@@ -765,6 +850,8 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
       return el("div", { class: "col" }, [
         el("h3", {}, [name, draft.bidder === t ? el("span", { class: "bidtag", text: "a ales cozul" }) : ""]),
         el("div", { class: "field" }, [el("span", { class: "label", text: "Puncte din cărți (fără ultima)" }), el("div", { class: "tricks" }, pointsRow)]),
+        GS.photoButton("Numără din poză", (f) => readCards(t, f)),
+        cardReview(t),
         el("div", { class: "field" }, declKids),
         el("label", { class: "penalty nocards", for: "nocards" + t }, [
           el("input", {
@@ -955,6 +1042,7 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
         p("Ultima mână:", "valorează 10 puncte (1 bilă) și face parte din cele 16 bile ale rundei. Dacă o ia altcineva decât cel care a ales cozul, bila i se adaugă înainte de a stabili BT-ul. Dacă o ia cel care a ales cozul, nu contează când se stabilește BT-ul, dar rămâne în totalul rundei. Punctele din cărți se scriu fără ultima (152 în total)."),
         p("Bela", "rămâne celui care o are, chiar și cu BT. Se pierde doar dacă jucătorul nu ia nicio carte."),
         p("Combinațiile", "se adaugă la punctele totale ale rundei, în afară de cazul în care jucătorul care le are nu ia nicio carte. Atunci primește −10 bile și nicio combinație a lui nu se socotește, nici Bela."),
+        p("Numără din poză:", "faceți o poză cu cărțile luate de un jucător sau o pereche. Claude recunoaște cărțile, iar aplicația calculează punctele după coz. Cărțile neclare sunt evidențiate și trebuie verificate înainte de a folosi punctele."),
         p("Încălcare de regulă:", "jucătorul care încalcă o regulă primește −10 bile, iar runda se reia de la început (se scrie ca o rundă separată, fără alte puncte)."),
         p("Combinații egale:", "dacă doi jucători au combinații identice, ele se anulează. Combinația în culoarea cozului are prioritate. Hotărâți la masă care combinații se socotesc."),
         p("Combinații reduse:", "fiecare jucător poate arăta cel mult două combinații de 100 de puncte sau mai mari într-un joc. Dacă într-o rundă îi vine o combinație dublă (de exemplu KKKK + QQQQ), se socotesc toate, apoi nu mai poate arăta altele."),
@@ -974,6 +1062,7 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
 
   function addSpecial(hand) {
     if (computeGame(baseHands(), state.target, state.mode).winner !== null) return;
+    cardReviews = {};
     if (editing) state.hands[state.hands.length - 1] = hand;
     else state.hands.push(hand);
     editing = false;

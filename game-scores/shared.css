@@ -129,6 +129,20 @@ details.rules p { margin: 0; max-width: 70ch; }
 details.rules dl { margin: 0; display: grid; grid-template-columns: 1fr auto; gap: 4px 14px; max-width: 30em; }
 details.rules dd { margin: 0; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
 
+/* Photo scoring */
+.photo-btn { display: inline-flex; align-items: center; gap: 6px; }
+.review { display: grid; gap: 10px; padding: 12px; border-radius: 8px; border: 1px solid var(--accent); background: var(--accent-soft); }
+.review .review-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; font-weight: 700; }
+.review .items { display: flex; flex-wrap: wrap; gap: 6px; }
+.review .item { display: inline-flex; align-items: center; gap: 4px; padding: 3px 4px 3px 6px; border-radius: 6px; background: var(--paper); border: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+.review .item.unsure { border-color: var(--gold); background: var(--gold-soft); }
+.review .item input, .review .item select { width: 3.2em; padding: 2px 4px; border: 1px solid var(--line); border-radius: 4px; background: var(--paper); }
+.review .item select { width: auto; }
+.review .item button { border: 0; background: transparent; color: var(--muted); padding: 0 4px; font-size: 1rem; }
+.review .warn { font-size: .84rem; color: var(--gold); }
+.review .actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.reading { font-size: .88rem; color: var(--muted); }
+
 @media (max-width: 560px) {
   .panel { padding: 14px; }
 }

@@ -69,6 +69,7 @@
       <p><b>Europe:</b> each station you did not place is worth 4 points. The European Express (longest path) is worth 10.</p>
       <p><b>Nordic Countries:</b> 40 trains each. The Globetrotter (most completed tickets) is worth 10; there is no longest path bonus.</p>
       <p>Ties for a bonus give the full bonus to everyone tied.</p>
+      <p><b>Read tickets from photo:</b> lay out a player's tickets and take a photo. Claude reads the cities and points; you mark each one completed or not before they are added.</p>
     </div>
   </details>
 </div>
@@ -131,6 +132,58 @@
   });
 
   function change(fn) { fn(); state.started = true; persist(); render(); }
+
+  // ---------- photo of tickets ----------
+  // reviews[i]: { status, tickets: [{from, to, v, sure, ok: true|false|null}], notes, error }
+  const reviews = {};
+  function ticketPrompt() {
+    return "This photo shows destination tickets from the board game Ticket to Ride (" + map().label + " map). "
+      + "Read every ticket card in the photo: its two cities and its point value (the number printed on the card). "
+      + "Reply with only JSON in this shape: "
+      + '{"tickets":[{"from":"Denver","to":"El Paso","points":4,"sure":true}],"notes":""}. '
+      + 'Set "sure" to false when the number or a city is hard to read. Use "notes" for anything to check, like a card cut off by the edge.';
+  }
+  async function readTickets(i, file) {
+    reviews[i] = { status: "reading" };
+    render();
+    try {
+      const r = await GS.readPhoto(file, ticketPrompt());
+      const list = Array.isArray(r && r.tickets) ? r.tickets : [];
+      reviews[i] = { status: "done", notes: typeof r.notes === "string" ? r.notes : "",
+        tickets: list.map((t) => ({ from: String(t.from || "?"), to: String(t.to || "?"), v: Math.max(1, Math.round(Number(t.points)) || 1), sure: t.sure !== false, ok: null })) };
+    } catch (e) {
+      reviews[i] = { status: "error", error: GS.photoError(e) };
+    }
+    render();
+  }
+  function ticketReview(p, i) {
+    const r = reviews[i];
+    if (!r) return null;
+    if (r.status === "reading") return el("div", { class: "reading", text: "Reading the tickets… this can take up to a minute." });
+    if (r.status === "error") return el("div", { class: "review" }, [el("span", { class: "warn", text: r.error }),
+      el("div", { class: "actions" }, [el("button", { type: "button", class: "btn sm", text: "Close", onclick: () => { delete reviews[i]; render(); } })])]);
+    const pending = r.tickets.filter((t) => t.ok === null).length;
+    return el("div", { class: "review" }, [
+      el("div", { class: "review-head" }, [el("span", { text: r.tickets.length + " tickets read" }), el("span", { class: "small muted", text: "Mark each one" })]),
+      ...r.tickets.map((t, k) => {
+        const val = el("input", { type: "number", min: "1", max: "30", value: String(t.v), "aria-label": "Ticket points" });
+        val.addEventListener("change", () => { t.v = Math.max(1, Math.round(Number(val.value)) || 1); t.sure = true; });
+        return el("div", { class: "item" + (t.sure ? "" : " unsure"), style: { display: "flex", flexWrap: "wrap", gap: "6px", width: "100%" } }, [
+          el("span", { style: { flex: "1", minWidth: "8em" }, text: t.from + " – " + t.to }), val,
+          el("button", { type: "button", class: "chip", "aria-pressed": String(t.ok === true), onclick: () => { t.ok = true; render(); } }, ["Completed"]),
+          el("button", { type: "button", class: "chip", "aria-pressed": String(t.ok === false), onclick: () => { t.ok = false; render(); } }, ["Not completed"]),
+          el("button", { type: "button", text: "×", "aria-label": "Remove ticket", onclick: () => { r.tickets.splice(k, 1); render(); } })
+        ]);
+      }),
+      r.tickets.some((t) => !t.sure) ? el("span", { class: "warn", text: "Highlighted tickets were hard to read. Check the points." }) : null,
+      r.notes ? el("span", { class: "warn", text: r.notes }) : null,
+      el("div", { class: "actions" }, [
+        el("button", { type: "button", class: "btn sm", text: "Discard", onclick: () => { delete reviews[i]; render(); } }),
+        el("button", { type: "button", class: "btn primary sm", text: pending ? pending + " still to mark" : "Add " + r.tickets.length + " tickets", disabled: pending > 0 || !r.tickets.length,
+          onclick: () => { const add = r.tickets.map((t) => ({ v: t.v, ok: t.ok })); delete reviews[i]; change(() => { p.tickets.push(...add); }); } })
+      ])
+    ]);
+  }
 
   function render() {
     const m = map();
@@ -209,6 +262,8 @@
           el("div", { class: "addticket" }, [input,
             el("button", { type: "button", class: "btn sm", text: "Completed", onclick: () => addTicket(true) }),
             el("button", { type: "button", class: "btn sm danger", text: "Not completed", onclick: () => addTicket(false) })]),
+          GS.photoButton("Read tickets from photo", (f) => readTickets(i, f), "sm"),
+          ticketReview(p, i),
           el("div", { class: "tickets" }, p.tickets.length ? p.tickets.map((t, k) => el("span", { class: "ticket " + (t.ok ? "ok" : "fail") }, [
             (t.ok ? "+" : "−") + t.v,
             el("button", { type: "button", text: "×", "aria-label": "Remove ticket", onclick: () => change(() => { p.tickets.splice(k, 1); }) })

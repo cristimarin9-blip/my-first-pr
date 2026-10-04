@@ -103,5 +103,106 @@ window.GS = (function () {
     return box;
   }
 
-  return { el, load, save, range, COLORS, defaultPlayers, playerName, dot, playerSetup, stepper, confirmButton };
+  // ---------- photo scoring ----------
+  // Claude reads photos through the viewer's `sample` capability. It only exists on the
+  // artifact's main page, so game pages opened inside the menu borrow the menu's bridge.
+  function makePhotoApi() {
+    let samplePromise = null;
+    function getSample() {
+      if (!samplePromise) samplePromise = (async () => {
+        if (!window.claude || !window.claude.use) return null;
+        const s = await window.claude.use("sample");
+        if (!s) return null;
+        const lim = await s.limits().catch(() => null);
+        return lim && lim.images ? s : null;
+      })().catch(() => null);
+      return samplePromise;
+    }
+    return {
+      available: async () => !!(await getSample()),
+      // Takes plain data (string + ArrayBuffer) so it can be called from another frame.
+      ask: async (prompt, buffer, type) => {
+        const s = await getSample();
+        if (!s) throw { code: "images_unavailable", message: "Photos are not available here." };
+        return s.json(prompt, { images: [new Blob([buffer], { type: type || "image/jpeg" })] });
+      }
+    };
+  }
+
+  let photoApi = null;
+  let photoKnown = null; // true / false once known, so redrawn buttons don't flicker
+  function photo() {
+    if (photoApi) return photoApi;
+    try {
+      if (window.parent !== window && window.parent.GS_photo) { photoApi = window.parent.GS_photo; return photoApi; }
+    } catch (e) { /* parent is not the menu */ }
+    photoApi = makePhotoApi();
+    return photoApi;
+  }
+
+  async function readPhoto(file, prompt) {
+    const buffer = await file.arrayBuffer();
+    return photo().ask(prompt, buffer, file.type);
+  }
+
+  const PHOTO_ERRORS = {
+    en: {
+      not_granted: "Photo reading was not allowed for this page.",
+      rate_limited: "Too many photos at once. Wait a moment and try again.",
+      image_rejected: "That photo could not be read. Try another one.",
+      refused: "Claude could not read this photo. Try another one.",
+      invalid_json: "The photo was read but the answer was unclear. Try again or enter the score by hand.",
+      session_expired: "Sign in to Claude again, then retry.",
+      images_unavailable: "Photo reading is not available here.",
+      other: "Something went wrong reading the photo. Try again or enter the score by hand."
+    },
+    ro: {
+      not_granted: "Citirea pozelor nu a fost permisă pentru această pagină.",
+      rate_limited: "Prea multe poze deodată. Așteptați puțin și încercați din nou.",
+      image_rejected: "Poza nu a putut fi citită. Încercați alta.",
+      refused: "Claude nu a putut citi poza. Încercați alta.",
+      invalid_json: "Poza a fost citită, dar răspunsul nu e clar. Încercați din nou sau scrieți punctele de mână.",
+      session_expired: "Conectați-vă din nou la Claude, apoi reîncercați.",
+      images_unavailable: "Citirea pozelor nu e disponibilă aici.",
+      other: "Ceva n-a mers la citirea pozei. Încercați din nou sau scrieți punctele de mână."
+    }
+  };
+  function photoError(e, lang) {
+    const t = PHOTO_ERRORS[lang || "en"];
+    return t[(e && e.code) || "other"] || t.other;
+  }
+
+  // A camera button that stays hidden until photo reading is available in this view.
+  // `onFile(file)` runs with the chosen or taken photo.
+  function photoButton(label, onFile, cls) {
+    const input = el("input", { type: "file", accept: "image/*", capture: "environment", hidden: true });
+    const btn = el("button", { type: "button", class: "btn photo-btn " + (cls || ""), hidden: photoKnown !== true, onclick: () => input.click() }, [cameraIcon(), label]);
+    input.addEventListener("change", () => {
+      const f = input.files && input.files[0];
+      input.value = "";
+      if (f) onFile(f);
+    });
+    if (photoKnown === null) photo().available().then((ok) => { photoKnown = ok; btn.hidden = !ok; }).catch(() => { photoKnown = false; });
+    return el("span", { class: "photo-wrap" }, [btn, input]);
+  }
+
+  function cameraIcon() {
+    const ns = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(ns, "svg");
+    svg.setAttribute("viewBox", "0 0 24 24"); svg.setAttribute("width", "18"); svg.setAttribute("height", "18"); svg.setAttribute("aria-hidden", "true");
+    svg.innerHTML = '<path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5" fill="none" stroke="currentColor" stroke-width="2"/>';
+    return svg;
+  }
+
+  // Inside the menu, "back" closes the game instead of loading the menu again.
+  document.addEventListener("click", (e) => {
+    const a = e.target.closest && e.target.closest("a.back");
+    if (!a) return;
+    try {
+      if (window.parent !== window && window.parent.GS_closeGame) { e.preventDefault(); window.parent.GS_closeGame(); }
+    } catch (err) { /* follow the link */ }
+  });
+
+  return { el, load, save, range, COLORS, defaultPlayers, playerName, dot, playerSetup, stepper, confirmButton,
+    makePhotoApi, photo, readPhoto, photoButton, photoError };
 })();

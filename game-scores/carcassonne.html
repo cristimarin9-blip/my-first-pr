@@ -52,6 +52,8 @@
 
   <section class="panel" aria-labelledby="calcTitle">
     <div class="panel-head"><h2 id="calcTitle">Score a feature</h2><span class="label">Majority wins, ties all score</span></div>
+    <div class="row" id="photoRow"></div>
+    <div id="photoReview"></div>
     <div class="field"><span class="label">Feature</span><div class="seg" id="typeSeg"></div></div>
     <div class="field" id="whenField"><span class="label">When</span><div class="seg" id="whenSeg"></div></div>
     <div class="calc-grid" id="calcInputs"></div>
@@ -92,6 +94,7 @@
       <p><b>Hills &amp; Sheep:</b> a completed monastery scores 3 more for each vineyard around it. A shepherd scores the total of the sheep in the flock. Hills only break ties.</p>
       <p><b>Bridges, Castles &amp; Bazaars:</b> a castle scores the points of the first feature completed next to it. Bazaar bids are paid in points: use Other points with a minus sign.</p>
       <p>Anything else (more expansions, house rules) can be added with Other points.</p>
+      <p><b>Count from photo:</b> take a photo of one feature with its meeples. Claude fills in the calculator (type, tiles, pennants, who has the most meeples) and lists anything it was unsure about. Check the numbers, then press Add to scores.</p>
     </div>
   </details>
 </div>
@@ -239,8 +242,72 @@
     if (calc.fairy !== null && on("pd")) { pts[calc.fairy] += 3; label += ", fairy"; }
     const keep = { type: calc.type, when: calc.when };
     calc = Object.assign(freshCalc(), keep);
+    photoState = null;
     add(pts, label);
   });
+
+  // ---------- photo of a feature ----------
+  // The photo fills in the calculator; nothing is scored until the player presses "Add to scores".
+  let photoState = null; // { status: "reading" | "done" | "error", text, unsure: [], notes }
+  function colourName(i) { return GS.COLORS[state.players[i].color].name.toLowerCase(); }
+  function featurePrompt() {
+    const who = range(n()).map((i) => name(i) + " = " + colourName(i)).join(", ");
+    return "This is a photo of part of a Carcassonne board. The players want to score ONE feature: the road, city, monastery or field that is most central or most obvious in the photo. "
+      + "Players and their meeple colours: " + who + ". "
+      + "Count the tiles that make up that feature (a tile counts once even if the feature crosses it twice), the pennants (coat-of-arms shields) in a city, "
+      + "and the meeples standing ON that feature by colour (a big meeple counts as 2). "
+      + "Say whether the feature is completed (closed on all sides; for a monastery, surrounded by 8 tiles). "
+      + "For an unfinished monastery count the tiles in its 3×3 square including itself. For a field, count the completed cities touching it. "
+      + "Note an inn on a road (a small house by a lake) or a cathedral in a city if you see one. "
+      + "Reply with only JSON in this shape: "
+      + '{"type":"road|city|monastery|field","completed":true,"tiles":4,"pennants":1,"inn":false,"cathedral":false,"monasteryTiles":9,"completedCities":0,"meeples":{"red":1},"unsure":["what is unclear"],"notes":""}. '
+      + 'Put anything you are not certain about (a tile at the photo edge, a hidden pennant, an unclear meeple colour) in "unsure".';
+  }
+  async function readFeature(file) {
+    photoState = { status: "reading" };
+    renderPhoto();
+    try {
+      const r = await GS.readPhoto(file, featurePrompt());
+      const type = ["road", "city", "monastery", "field"].includes(r && r.type) ? r.type : "city";
+      const int = (v, d) => { const x = Math.round(Number(v)); return Number.isFinite(x) && x >= 0 ? x : d; };
+      calc = Object.assign(freshCalc(), { type, when: type === "field" ? "end" : (r.completed === false ? "end" : "done") });
+      calc.tiles = Math.max(1, int(r.tiles, 1));
+      calc.pennants = int(r.pennants, 0);
+      calc.inn = on("ic") && !!r.inn;
+      calc.cathedral = on("ic") && !!r.cathedral;
+      calc.around = Math.max(1, Math.min(8, int(r.monasteryTiles, 1)));
+      calc.cities = int(r.completedCities, 0);
+      // Whoever has the most meeples on it scores; ties all score.
+      const counts = range(n()).map((i) => int(r.meeples && r.meeples[colourName(i)], 0));
+      const best = Math.max(...counts);
+      calc.who = best > 0 ? range(n()).filter((i) => counts[i] === best) : [];
+      const seen = range(n()).filter((i) => counts[i]).map((i) => name(i) + " " + counts[i]).join(", ") || "no meeples matched a player colour";
+      photoState = {
+        status: "done",
+        text: "Read: " + type + (calc.when === "done" ? ", completed" : ", unfinished") + ". Meeples: " + seen + ".",
+        unsure: Array.isArray(r.unsure) ? r.unsure.filter((x) => typeof x === "string" && x.trim()) : [],
+        notes: typeof r.notes === "string" ? r.notes : ""
+      };
+    } catch (e) {
+      photoState = { status: "error", text: GS.photoError(e) };
+    }
+    renderPhoto();
+    renderCalc();
+  }
+  function renderPhoto() {
+    if (!$("photoRow").firstChild) $("photoRow").append(GS.photoButton("Count from photo", readFeature), el("span", { class: "small muted", text: "Photo of one road, city, monastery or field." }));
+    const p = photoState;
+    if (!p) { $("photoReview").replaceChildren(); return; }
+    if (p.status === "reading") { $("photoReview").replaceChildren(el("div", { class: "reading", text: "Reading the photo… this can take up to a minute." })); return; }
+    $("photoReview").replaceChildren(el("div", { class: "review" }, [
+      el("div", { class: "review-head" }, [el("span", { text: p.status === "error" ? "Could not read the photo" : "Filled in from the photo" }),
+        p.status === "done" ? el("span", { class: "tag gold", text: "Check below before adding" }) : null]),
+      el("span", { text: p.text }),
+      ...(p.unsure || []).map((u) => el("span", { class: "warn", text: "Unsure: " + u })),
+      p.notes ? el("span", { class: "warn", text: p.notes }) : null,
+      el("div", { class: "actions" }, [el("button", { type: "button", class: "btn sm", text: "Close", onclick: () => { photoState = null; renderPhoto(); } })])
+    ]));
+  }
 
   // ---------- more scoring ----------
 
@@ -379,6 +446,7 @@
       state.log = []; goods = state.players.map(() => [0, 0, 0]); persist(); render();
     }));
     renderTrack();
+    renderPhoto();
     renderCalc();
     renderMore();
     renderLog();

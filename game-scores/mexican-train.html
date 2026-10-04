@@ -86,6 +86,7 @@
       <p>If the round is blocked, everyone counts their pips.</p>
       <p>Many tables count the double blank as 50 points when it is left in a hand. Turn this on in the setup if you play that way.</p>
       <p>After the last round the player with the lowest total wins.</p>
+      <p><b>Count from photo:</b> lay the dominoes left in a hand face up and take a photo. Claude counts the pips on each domino; you check them before the total is used. Dominoes it was unsure about are highlighted and must be checked first.</p>
     </div>
   </details>
 </div>
@@ -106,6 +107,68 @@
 
   function freshDraft() {
     return { pips: state.players.map(() => ""), dz: state.players.map(() => false) };
+  }
+
+  // ---------- photo of a hand ----------
+  // reviews[i]: { status: "reading" | "done" | "error", dominoes: [{a, b, sure}], notes, error }
+  let reviews = {};
+  function handPrompt() {
+    return "This photo shows the dominoes left in ONE player's hand at the end of a Mexican Train round, "
+      + "played with a double-" + state.set + " set (each half has 0 to " + state.set + " pips). "
+      + "Find every domino in the photo and count the pips on each half. Ignore dominoes that are clearly part of a train on the table. "
+      + "Reply with only JSON in this shape: "
+      + '{"dominoes":[{"a":6,"b":3,"sure":true}],"notes":""}. '
+      + 'Set "sure" to false for any domino that is blurry, partly hidden, cut off by the edge, or where you are not certain of a pip count. '
+      + 'Use "notes" for anything the player should check, for example a domino you may have missed. Empty array if there are no dominoes.';
+  }
+  async function readHand(i, file) {
+    reviews[i] = { status: "reading" };
+    renderForm();
+    try {
+      const res = await GS.readPhoto(file, handPrompt());
+      const list = Array.isArray(res && res.dominoes) ? res.dominoes : [];
+      reviews[i] = {
+        status: "done",
+        dominoes: list.map((d) => ({ a: clampPip(d.a), b: clampPip(d.b), sure: d.sure !== false })),
+        notes: res && typeof res.notes === "string" ? res.notes : ""
+      };
+    } catch (e) {
+      reviews[i] = { status: "error", error: GS.photoError(e) };
+    }
+    renderForm();
+  }
+  function clampPip(v) { const n = Math.round(Number(v)); return Number.isFinite(n) ? Math.max(0, Math.min(state.set, n)) : 0; }
+
+  function reviewBox(i) {
+    const r = reviews[i];
+    if (!r) return null;
+    if (r.status === "reading") return el("div", { class: "reading", text: "Reading the photo… this can take up to a minute." });
+    if (r.status === "error") return el("div", { class: "review" }, [el("span", { class: "warn", text: r.error }),
+      el("div", { class: "actions" }, [el("button", { type: "button", class: "btn sm", text: "Close", onclick: () => { delete reviews[i]; renderForm(); } })])]);
+    const total = r.dominoes.reduce((s, d) => s + d.a + d.b, 0);
+    const hasDz = r.dominoes.some((d) => d.a === 0 && d.b === 0);
+    const unsure = r.dominoes.filter((d) => !d.sure).length;
+    const num = (d, k) => {
+      const inp = el("input", { type: "number", min: "0", max: String(state.set), value: String(d[k]), "aria-label": "Pips" });
+      inp.addEventListener("change", () => { d[k] = clampPip(inp.value); d.sure = true; renderForm(); });
+      return inp;
+    };
+    return el("div", { class: "review" }, [
+      el("div", { class: "review-head" }, [el("span", { text: r.dominoes.length + " dominoes, " + total + " pips" }),
+        unsure ? el("span", { class: "tag gold", text: unsure + " to check" }) : el("span", { class: "tag", text: "All read clearly" })]),
+      el("div", { class: "items" }, r.dominoes.map((d, k) => el("span", { class: "item" + (d.sure ? "" : " unsure") }, [
+        num(d, "a"), "|", num(d, "b"),
+        el("button", { type: "button", text: "×", "aria-label": "Remove domino", onclick: () => { r.dominoes.splice(k, 1); renderForm(); } })
+      ])).concat([el("button", { type: "button", class: "btn sm", text: "+ Domino", onclick: () => { r.dominoes.push({ a: 0, b: 0, sure: false }); renderForm(); } })])),
+      unsure ? el("span", { class: "warn", text: "Highlighted dominoes were hard to read. Fix the numbers if needed, or confirm they are correct." }) : null,
+      r.notes ? el("span", { class: "warn", text: r.notes }) : null,
+      el("div", { class: "actions" }, [
+        el("button", { type: "button", class: "btn sm", text: "Discard", onclick: () => { delete reviews[i]; renderForm(); } }),
+        unsure ? el("button", { type: "button", class: "btn sm", text: "Highlighted ones are correct", onclick: () => { r.dominoes.forEach((d) => { d.sure = true; }); renderForm(); } }) : null,
+        el("button", { type: "button", class: "btn primary sm", text: "Use " + total + " pips" + (hasDz && state.doubleZero50 ? " + double blank" : ""), disabled: unsure > 0,
+          onclick: () => { draft.pips[i] = String(total); draft.dz[i] = hasDz; delete reviews[i]; renderForm(); } })
+      ])
+    ]);
   }
   draft = freshDraft();
 
@@ -178,6 +241,8 @@
           input,
           el("button", { type: "button", class: "btn sm", text: "Went out", onclick: () => { draft.pips[i] = "0"; draft.dz[i] = false; render(); } })
         ]),
+        GS.photoButton("Count from photo", (f) => readHand(i, f), "sm"),
+        reviewBox(i),
         state.doubleZero50 ? el("label", { class: "toggle small", for: "dz" + i }, [
           el("input", { type: "checkbox", id: "dz" + i, checked: draft.dz[i], onchange: (e) => { draft.dz[i] = e.target.checked; updateNote(); } }),
           "Holding the double blank (+50)"
@@ -235,7 +300,7 @@
     if (editing) state.rounds[state.rounds.length - 1] = r.round;
     else if (state.rounds.length < totalRounds()) state.rounds.push(r.round);
     editing = false;
-    draft = freshDraft(); persist(); render();
+    draft = freshDraft(); reviews = {}; persist(); render();
   });
   $("dz").addEventListener("change", (e) => { state.doubleZero50 = e.target.checked; persist(); render(); });
   $("undo").addEventListener("click", () => { state.rounds.pop(); persist(); render(); });

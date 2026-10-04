@@ -42,6 +42,11 @@
     <div id="players" class="field"></div>
   </section>
 
+  <section class="panel" id="photoPanel" hidden aria-label="Read the board from a photo">
+    <div class="row"><span id="photoBtn"></span><span class="small muted">Counts settlements and cities by colour. You check before anything changes.</span></div>
+    <div id="photoReview"></div>
+  </section>
+
   <div id="banner" class="banner" hidden></div>
   <section class="cards" id="cards" aria-label="Players"></section>
 
@@ -58,6 +63,7 @@
       <p>Each player has 5 settlements and 4 cities. You start with 2 settlements. Building a city replaces one of your settlements, so use “Upgrade to city”.</p>
       <p><b>Longest Road and Largest Army</b> move by themselves. A player takes the card when they have strictly more than the current holder. If the holder's road is broken and two other players tie for the longest, nobody holds it.</p>
       <p><b>Seafarers:</b> add the island bonus tokens (usually 1 or 2 points each). The points to win depend on the scenario, so set them above.</p>
+      <p><b>Read the board from a photo:</b> Claude counts each colour's settlements and cities. Match colours to players, check the numbers, then press Update players. Roads, knights and cards still need to be entered by hand.</p>
       <p><b>Cities &amp; Knights:</b> you play to 13. There is no Largest Army. Each metropolis is worth 2 more points on top of its city. “Defender of Catan” cards are 1 point each, and the Merchant is worth 1 point while you control it. Printer and Constitution count as victory point cards.</p>
     </div>
   </details>
@@ -122,6 +128,66 @@
   });
 
   function change(fn) { fn(); state.started = true; updateHolders(); persist(); render(); }
+
+  // ---------- photo of the board ----------
+  // review: { status, rows: [{colour, settlements, cities, player, sure}], notes, error }
+  let review = null;
+  const PROMPT = "This is a photo of a Catan board during or at the end of a game. "
+    + "Count, for each player colour you see, the settlements (small houses) and cities (bigger buildings with a tower) on the board. "
+    + "Do not count roads. Ignore pieces that are clearly off the board. "
+    + "Reply with only JSON in this shape: "
+    + '{"players":[{"colour":"red","settlements":3,"cities":1,"sure":true}],"notes":""}. '
+    + 'Use simple colour words (red, blue, white, orange, green, brown). Set "sure" to false for a colour where a piece may be hidden or the colour is hard to tell.';
+  async function readBoard(file) {
+    review = { status: "reading" };
+    renderPhoto();
+    try {
+      const r = await GS.readPhoto(file, PROMPT);
+      const list = Array.isArray(r && r.players) ? r.players : [];
+      const int = (v, max) => Math.max(0, Math.min(max, Math.round(Number(v)) || 0));
+      review = { status: "done", notes: typeof r.notes === "string" ? r.notes : "", rows: list.map((x) => {
+        const colour = String(x.colour || x.color || "?").toLowerCase();
+        const match = state.players.findIndex((p) => GS.COLORS[p.color].name.toLowerCase() === colour);
+        return { colour, settlements: int(x.settlements, 5), cities: int(x.cities, 4), sure: x.sure !== false, player: match >= 0 ? match : null };
+      }) };
+    } catch (e) {
+      review = { status: "error", error: GS.photoError(e) };
+    }
+    renderPhoto();
+  }
+  function renderPhoto() {
+    if (!$("photoBtn").firstChild) $("photoBtn").append(GS.photoButton("Read the board from a photo", readBoard));
+    GS.photo().available().then((ok) => { $("photoPanel").hidden = !ok; });
+    const box = $("photoReview");
+    if (!review) { box.replaceChildren(); return; }
+    if (review.status === "reading") { box.replaceChildren(el("div", { class: "reading", text: "Reading the board… this can take up to a minute." })); return; }
+    if (review.status === "error") { box.replaceChildren(el("div", { class: "review" }, [el("span", { class: "warn", text: review.error }),
+      el("div", { class: "actions" }, [el("button", { type: "button", class: "btn sm", text: "Close", onclick: () => { review = null; renderPhoto(); } })])])); return; }
+    const rows = review.rows.map((row) => {
+      const sel = el("select", { "aria-label": "Player for " + row.colour }, [el("option", { value: "", text: "Not a player" }),
+        ...state.players.map((p, i) => el("option", { value: String(i), text: playerName(p, i), selected: row.player === i }))]);
+      sel.addEventListener("change", () => { row.player = sel.value === "" ? null : Number(sel.value); });
+      return el("div", { class: "item" + (row.sure ? "" : " unsure"), style: { display: "flex", flexWrap: "wrap", gap: "8px", width: "100%", alignItems: "center" } }, [
+        el("b", { style: { minWidth: "5em" }, text: row.colour }),
+        "Settlements", stepper(row.settlements, (v) => { row.settlements = v; row.sure = true; renderPhoto(); }, { max: 5, label: "settlements" }),
+        "Cities", stepper(row.cities, (v) => { row.cities = v; row.sure = true; renderPhoto(); }, { max: 4, label: "cities" }),
+        sel
+      ]);
+    });
+    const unsure = review.rows.filter((r) => !r.sure).length;
+    box.replaceChildren(el("div", { class: "review" }, [
+      el("div", { class: "review-head" }, [el("span", { text: "Read from the photo" }), unsure ? el("span", { class: "tag gold", text: unsure + " to check" }) : null]),
+      ...rows,
+      unsure ? el("span", { class: "warn", text: "Highlighted colours were hard to count. Adjust the numbers, or confirm them." }) : null,
+      review.notes ? el("span", { class: "warn", text: review.notes }) : null,
+      el("div", { class: "actions" }, [
+        el("button", { type: "button", class: "btn sm", text: "Discard", onclick: () => { review = null; renderPhoto(); } }),
+        unsure ? el("button", { type: "button", class: "btn sm", text: "Counts are correct", onclick: () => { review.rows.forEach((r) => { r.sure = true; }); renderPhoto(); } }) : null,
+        el("button", { type: "button", class: "btn primary sm", text: "Update players", disabled: unsure > 0 || !review.rows.some((r) => r.player !== null),
+          onclick: () => { const rows = review.rows; review = null; change(() => { rows.forEach((r) => { if (r.player !== null) { state.players[r.player].settlements = r.settlements; state.players[r.player].cities = r.cities; } }); }); renderPhoto(); } })
+      ])
+    ]));
+  }
 
   function counter(label, hint, value, set, opts) {
     return [el("span", { class: "what" }, [label, hint ? el("small", { text: hint }) : null]), stepper(value, (v) => change(() => set(v)), Object.assign({ label }, opts))];
@@ -188,6 +254,7 @@
 
   updateHolders();
   render();
+  renderPhoto();
 })();
 </script>
 </body>
