@@ -1,14 +1,14 @@
 <!doctype html>
-<html lang="en">
+<html lang="ro">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Belot Scorekeeper</title>
+<title>Tabelă Belot</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Young+Serif&family=Figtree:wght@400;500;600;700&display=swap">
 <style>
-/* Layout: a paper score sheet split into one column per team or player, the hand entry form under it, history ledger last. */
+/* Layout: o tabelă de hârtie împărțită pe coloane (câte una pentru fiecare jucător sau pereche), formularul rundei dedesubt, istoricul la final. */
 :root {
   --bg: #eef1ee;
   --paper: #fbfcfa;
@@ -63,11 +63,9 @@ button { cursor: pointer; }
 .sr { position: absolute; left: -9999px; }
 [hidden] { display: none !important; }
 
-/* Top bar */
+/* Bara de sus */
 .top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .top-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.target { display: flex; align-items: center; gap: 6px; font-size: .9rem; color: var(--muted); }
-.target input { width: 4.5em; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); }
 
 .btn { border: 1px solid var(--line); background: var(--paper); border-radius: 8px; padding: 8px 14px; font-weight: 600; }
 .btn:hover:not(:disabled) { border-color: var(--muted); }
@@ -75,12 +73,13 @@ button { cursor: pointer; }
 .btn.primary { background: var(--felt); color: var(--on-felt); border-color: var(--felt); }
 .btn.danger { color: var(--red); }
 
-/* Setup */
-.setup { display: flex; flex-wrap: wrap; gap: 10px 24px; align-items: center; }
+/* Setări */
+.setup { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: center; }
 .setup .field { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .setup-note { font-size: .82rem; color: var(--muted); }
+.toggle { display: flex; align-items: center; gap: 6px; font-size: .9rem; cursor: pointer; }
 
-/* Score sheet */
+/* Tabela */
 .sheet { background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
 .sheet-head { display: grid; }
 .team { padding: 16px 18px 14px; display: grid; gap: 6px; min-width: 0; }
@@ -90,21 +89,22 @@ button { cursor: pointer; }
   font-weight: 600; font-size: .95rem; color: var(--muted); min-width: 0;
 }
 .team input.name:hover, .team input.name:focus { border-bottom-color: var(--line); outline: none; }
-.total { font-family: var(--font-display); font-size: clamp(2.6rem, 11vw, 3.6rem); line-height: 1; }
-.sheet.many .total { font-size: clamp(1.8rem, 7vw, 2.8rem); }
+.total { font-family: var(--font-display); font-size: clamp(2.4rem, 10vw, 3.4rem); line-height: 1; }
+.sheet.many .total { font-size: clamp(1.9rem, 8vw, 2.8rem); }
 .sheet.many .team { padding: 14px 12px 12px; }
 .bar { height: 6px; border-radius: 3px; background: var(--felt-soft); overflow: hidden; }
 .bar span { display: block; height: 100%; background: var(--felt); transition: width .3s ease; }
-.togo { font-size: .82rem; color: var(--muted); }
+.togo { font-size: .82rem; color: var(--muted); display: flex; gap: 8px; flex-wrap: wrap; }
+.bt-count { color: var(--red); font-weight: 600; }
 .team.leader .total { color: var(--felt); }
 .banner {
   border-top: 1px solid var(--line); padding: 12px 18px; display: flex; gap: 12px; align-items: center;
   justify-content: space-between; flex-wrap: wrap; background: var(--felt-soft);
 }
 .banner strong { font-family: var(--font-display); font-weight: 400; font-size: 1.15rem; }
-.hangnote { border-top: 1px solid var(--line); padding: 10px 18px; font-size: .88rem; background: var(--gold-soft); color: var(--gold); }
+.limitnote { border-top: 1px solid var(--line); padding: 10px 18px; font-size: .88rem; background: var(--gold-soft); color: var(--gold); }
 
-/* Hand form */
+/* Formularul rundei */
 .panel { background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; display: grid; gap: 18px; }
 .panel-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
 .field { display: grid; gap: 8px; }
@@ -129,12 +129,9 @@ button { cursor: pointer; }
   width: 100%; max-width: 7em; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px;
   background: var(--paper); font-size: 1.15rem; font-variant-numeric: tabular-nums;
 }
-.tricks input:disabled { opacity: .6; }
 .remaining { font-size: .82rem; color: var(--muted); }
-.capot { display: flex; align-items: center; gap: 6px; font-size: .9rem; cursor: pointer; }
-.capot small { color: var(--muted); }
 
-.decl-btns { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 6px; }
+.decl-btns { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 6px; }
 .decl-btns button {
   border: 1px dashed var(--line); background: transparent; border-radius: 8px; padding: 7px 8px 6px;
   display: grid; gap: 5px; justify-items: start; text-align: left; font-size: .8rem; font-weight: 600; line-height: 1.2;
@@ -147,17 +144,23 @@ button { cursor: pointer; }
   display: inline-flex; align-items: center; gap: 6px; border-radius: 6px; padding: 3px 4px 3px 6px;
   background: var(--felt-soft); font-size: .82rem; font-weight: 600;
 }
-.tag.belot { background: var(--red-soft); }
+.tag.bela { background: var(--red-soft); }
+.tag.void { opacity: .55; text-decoration: line-through; }
 .tag button { border: 0; background: transparent; padding: 0 4px; font-size: 1rem; line-height: 1; color: inherit; opacity: .7; }
 .tag button:hover { opacity: 1; }
+.empty-decl, .hint { font-size: .82rem; color: var(--muted); }
+
 .penalty { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .pen-btn { border: 1px dashed var(--line); background: transparent; border-radius: 8px; padding: 5px 10px; font-size: .85rem; font-weight: 700; color: var(--red); }
 .pen-btn:hover:not(:disabled) { border-style: solid; border-color: var(--red); }
 .pen-btn small { font-weight: 500; color: var(--muted); }
 .tag.pen { background: var(--red-soft); color: var(--red); }
-.empty-decl { font-size: .82rem; color: var(--muted); }
 
-/* Playing-card icons */
+.special { display: grid; gap: 10px; padding: 12px; border: 1px dashed var(--line); border-radius: 8px; }
+.special-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: .9rem; }
+.special-row .btn { padding: 6px 10px; font-size: .85rem; display: inline-flex; align-items: center; gap: 8px; }
+
+/* Cărți desenate */
 .cards { display: inline-flex; align-items: center; }
 .card {
   display: inline-grid; grid-template-rows: auto auto; place-items: center; align-content: center;
@@ -170,6 +173,7 @@ button { cursor: pointer; }
 .card i { font-style: normal; font-size: .95em; }
 .cards.lg .card { font-size: .85rem; }
 .cards.lg .card + .card { margin-left: -.3em; }
+.cards.tight .card + .card { margin-left: -.55em; }
 
 .preview {
   display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
@@ -178,11 +182,11 @@ button { cursor: pointer; }
 .preview-text { font-size: .92rem; min-width: 0; }
 .preview-text b { font-variant-numeric: tabular-nums; }
 .status { display: inline-block; font-size: .72rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; padding: 2px 7px; border-radius: 4px; margin-right: 6px; }
-.status.made { background: var(--felt-soft); color: var(--felt); }
-.status.inside { background: var(--red-soft); color: var(--red); }
-.status.hanging { background: var(--gold-soft); color: var(--gold); }
+.status.ok { background: var(--felt-soft); color: var(--felt); }
+.status.bt { background: var(--red-soft); color: var(--red); }
+.status.other { background: var(--gold-soft); color: var(--gold); }
 
-/* History ledger */
+/* Istoric */
 .ledger { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
 th, td { padding: 9px 8px; text-align: left; border-bottom: 1px solid var(--line); vertical-align: top; }
@@ -190,6 +194,7 @@ th { font-size: .72rem; font-weight: 600; letter-spacing: .08em; text-transform:
 td.pts, th.pts { text-align: right; white-space: nowrap; }
 th.pts { max-width: 7em; overflow: hidden; text-overflow: ellipsis; }
 td.pts .run { display: block; font-size: .78rem; color: var(--muted); }
+td.pts .bt { color: var(--red); font-weight: 700; }
 td.pts.sep, th.pts.sep { border-left: 2px solid var(--ink); }
 .hand-contract { font-weight: 600; white-space: nowrap; }
 .hand-contract .red { color: var(--red); }
@@ -201,12 +206,12 @@ td.del button:hover { color: var(--red); }
 
 details.rules { background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 18px; }
 details.rules summary { cursor: pointer; font-family: var(--font-display); font-size: 1.05rem; }
-.rules-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 18px; margin-top: 14px; font-size: .9rem; }
+.rules-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 18px; margin-top: 14px; font-size: .9rem; }
 .rules-grid h4 { margin: 0 0 8px; font-size: .78rem; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
 .rules-grid dl { margin: 0; display: grid; grid-template-columns: auto 1fr auto; gap: 8px 10px; align-items: center; }
 .rules-grid dt { display: contents; }
 .rules-grid dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
-.rules-grid p { margin: 0 0 6px; }
+.rules-grid p { margin: 0 0 6px; max-width: 70ch; }
 .rules-wide { grid-column: 1 / -1; }
 
 .confirm { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: .9rem; }
@@ -223,64 +228,66 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
 <body>
 <div class="wrap">
   <header class="top">
-    <h1>Belot Scorekeeper</h1>
+    <h1>Tabelă Belot</h1>
     <div class="top-actions">
-      <label class="target" for="target">Play to <input id="target" type="number" min="1" step="1" class="num"></label>
       <span id="newGameBox"></span>
     </div>
   </header>
 
-  <section class="setup" aria-label="Game setup">
+  <section class="setup" aria-label="Setările jocului">
     <div class="field">
-      <span class="label">Play as</span>
+      <span class="label">Masa</span>
       <div class="seg" id="modeSeg"></div>
     </div>
-    <div class="field" id="playersField">
-      <span class="label">Players</span>
-      <div class="seg" id="playersSeg"></div>
+    <div class="field">
+      <span class="label">Jocul până la</span>
+      <div class="seg" id="targetSeg"></div>
     </div>
+    <label class="toggle" for="reduced"><input type="checkbox" id="reduced"> Combinații reduse</label>
     <span class="setup-note" id="setupNote"></span>
   </section>
 
-  <section class="sheet" id="sheet" aria-label="Score">
+  <section class="sheet" id="sheet" aria-label="Scor">
     <div class="sheet-head" id="sheetHead"></div>
-    <div class="hangnote" id="hangNote" hidden></div>
+    <div class="limitnote" id="limitNote" hidden></div>
     <div class="banner" id="banner" hidden></div>
   </section>
 
   <form class="panel" id="handForm" autocomplete="off">
     <div class="panel-head">
-      <h2 id="handTitle">Hand 1</h2>
-      <span class="label">Enter after the last trick</span>
+      <h2 id="handTitle">Runda 1</h2>
+      <span class="label">Se completează după ultima mână</span>
     </div>
 
     <div class="field">
-      <span class="label">Contract won by</span>
+      <span class="label" id="bidderLabel">A ales cozul</span>
       <div class="seg" id="bidderSeg"></div>
     </div>
 
     <div class="field">
-      <span class="label">Contract</span>
-      <div class="seg" id="contractSeg"></div>
-    </div>
-
-    <div class="field">
-      <span class="label">Double</span>
-      <div class="seg" id="multSeg"></div>
+      <span class="label">Coz</span>
+      <div class="seg" id="trumpSeg"></div>
     </div>
 
     <div class="cols" id="cols"></div>
 
+    <div class="special">
+      <span class="label">Cazuri speciale</span>
+      <label class="special-row" for="opt"><input type="checkbox" id="opt"> <span id="optCards"></span> Patru de opt la masă: se anulează combinațiile tuturor jucătorilor (în afară de Bela)</label>
+      <div class="special-row" id="annulRow"></div>
+      <div class="special-row" id="belotRow"></div>
+    </div>
+
     <div class="preview">
       <div class="preview-text" id="preview" aria-live="polite"></div>
-      <button class="btn primary" id="addHand" type="submit">Add hand</button>
+      <button class="btn primary" id="addHand" type="submit">Adaugă runda</button>
     </div>
   </form>
 
   <section class="panel" aria-labelledby="histTitle">
     <div class="panel-head">
-      <h2 id="histTitle">Score sheet</h2>
-      <button class="btn" id="undo" type="button">Undo last hand</button>
+      <h2 id="histTitle">Istoricul rundelor</h2>
+      <button class="btn" id="undo" type="button">Anulează ultima rundă</button>
     </div>
     <div class="ledger">
       <table>
@@ -291,7 +298,7 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
   </section>
 
   <details class="rules" id="rules">
-    <summary>Scoring reference</summary>
+    <summary>Regulile de punctaj</summary>
     <div class="rules-grid" id="rulesGrid"></div>
   </details>
 </div>
@@ -300,137 +307,136 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
 (function () {
   "use strict";
 
-  const CONTRACTS = {
-    c:  { label: "Clubs",      sym: "♣", kind: "suit", red: false },
-    d:  { label: "Diamonds",   sym: "♦", kind: "suit", red: true },
-    h:  { label: "Hearts",     sym: "♥", kind: "suit", red: true },
-    s:  { label: "Spades",     sym: "♠", kind: "suit", red: false },
-    nt: { label: "No trumps",  sym: "",  kind: "nt",   red: false },
-    at: { label: "All trumps", sym: "",  kind: "at",   red: false }
+  const SUITS = {
+    c: { label: "Treflă", sym: "♣", red: false },
+    d: { label: "Caro",   sym: "♦", red: true },
+    h: { label: "Cupă",   sym: "♥", red: true },
+    s: { label: "Pică",   sym: "♠", red: false }
   };
-  const CARD_TOTAL = { suit: 162, nt: 130, at: 258 };
-  const SUITS = ["♠", "♥", "♦", "♣"];
-  // `cards(trump)` lists what the combination is made of, as [rank, suit] pairs.
+  const ALL_SUITS = ["♠", "♥", "♦", "♣"];
+  const CARD_TOTAL = 162; // 152 în cărți + 10 pentru ultima mână
+  // `cards(coz)` arată din ce cărți e făcută combinația, ca perechi [rang, culoare].
   const DECL = {
-    t:  { label: "Tierce",     long: "Tierce, 3 in a row",  v: 20,  cards: (s) => ["7", "8", "9"].map((r) => [r, s]) },
-    q:  { label: "Quarte",     long: "Quarte, 4 in a row",  v: 50,  cards: (s) => ["7", "8", "9", "10"].map((r) => [r, s]) },
-    f:  { label: "Quint",      long: "Quint, 5+ in a row",  v: 100, cards: (s) => ["7", "8", "9", "10", "J"].map((r) => [r, s]) },
-    cj: { label: "Four jacks", long: "Four jacks",          v: 200, cards: () => SUITS.map((s) => ["J", s]) },
-    c9: { label: "Four nines", long: "Four nines",          v: 150, cards: () => SUITS.map((s) => ["9", s]) },
-    c4: { label: "Four A/K/Q/10", long: "Four aces, kings, queens or tens", v: 100, cards: () => SUITS.map((s) => ["A", s]) },
-    b:  { label: "Belot",      long: "Belot, K + Q of trumps", v: 20, cards: (s) => [["K", s], ["Q", s]] }
+    t:  { label: "Terț",            long: "Terț, 3 cărți la rând de aceeași culoare",        v: 20,  big: false, cards: (s) => ["9", "10", "J"].map((r) => [r, s]) },
+    j:  { label: "Jumate de sută",  long: "Jumate de sută, 4 cărți la rând",                 v: 50,  big: false, cards: (s) => ["9", "10", "J", "Q"].map((r) => [r, s]) },
+    o:  { label: "O sută",          long: "O sută, 5 cărți la rând",                         v: 100, big: true,  cards: (s) => ["9", "10", "J", "Q", "K"].map((r) => [r, s]) },
+    p4: { label: "Patru de 10/D/K/A", long: "Patru cărți de zece, dame, crai sau tuzi",      v: 100, big: true,  cards: () => ALL_SUITS.map((s) => ["A", s]) },
+    p9: { label: "Patru de nouă",   long: "Patru cărți de nouă",                             v: 150, big: true,  cards: () => ALL_SUITS.map((s) => ["9", s]) },
+    pv: { label: "Patru de valet",  long: "Patru cărți de valet",                            v: 200, big: true,  cards: () => ALL_SUITS.map((s) => ["J", s]) },
+    b:  { label: "Bela",            long: "Bela, dama și craiul de coz",                     v: 20,  big: false, cards: (s) => [["Q", s], ["K", s]] }
   };
-  const CAPOT_BONUS = 90;
-  const PENALTY = 10;
-  const STORE_KEY = "belot-scorekeeper-v1";
-  const DEFAULT_TEAMS = ["Us", "Them"];
-  const DEFAULT_PLAYERS = ["Player 1", "Player 2", "Player 3", "Player 4"];
+  const MODES = {
+    "1v1": { label: "1 vs 1",       sides: 2, kind: "jucători", defaults: ["Jucătorul 1", "Jucătorul 2"] },
+    "3":   { label: "În 3",         sides: 3, kind: "jucători", defaults: ["Jucătorul 1", "Jucătorul 2", "Jucătorul 3"] },
+    "2v2": { label: "În perechi",   sides: 2, kind: "perechi",  defaults: ["Noi", "Voi"] }
+  };
+  const PENALTY = 10;      // bile
+  const BT_LIMIT = 3;      // 3 BT-uri = −10 bile
+  const STORE_KEY = "belot-moldova-v1";
 
   const $ = (id) => document.getElementById(id);
   const range = (n) => Array.from({ length: n }, (_, i) => i);
+  const r1 = (x) => Math.round(x * 10) / 10;
 
-  // ---------- scoring ----------
+  // ---------- punctaj ----------
 
-  // Raw points → game points. Suits round 7+ up; all trumps / no trumps round 5+ up.
-  function toGame(raw, kind) {
-    const threshold = kind === "suit" ? 6 : 4;
-    raw = Math.round(raw);
-    return Math.floor(raw / 10) + (raw % 10 > threshold ? 1 : 0);
+  // Puncte → bile: 10 = 1, 35 = 3, 66 = 7 (5 se rotunjește în jos, 6 în sus).
+  function toBile(points) {
+    return Math.floor(points / 10) + (points % 10 >= 6 ? 1 : 0);
   }
 
-  // Works for any number of sides (2 teams, or 2–4 individual players).
-  // The bidder must score more than every opponent. If inside, the bidder's points are
-  // shared among the opponents; with two sides that means the defenders take everything.
-  function scoreHand(h) {
-    const kind = CONTRACTS[h.contract].kind;
-    const n = h.tricks.length;
+  function scoreHand(h, mode) {
+    const n = h.points ? h.points.length : MODES[mode].sides;
     const sides = range(n);
-    const ntFactor = kind === "nt" ? 2 : 1;
-    const capot = sides.map((t) => (h.capot === t ? CAPOT_BONUS : 0));
-    const belot = sides.map((t) => kind === "nt" ? 0 : h.decl[t].filter((x) => x === "b").length * DECL.b.v);
-    const decl = sides.map((t) => kind === "nt" ? 0 : h.decl[t].filter((x) => x !== "b").reduce((s, x) => s + DECL[x].v, 0));
-    const pool = sides.map((t) => (h.tricks[t] + capot[t]) * ntFactor + decl[t]);
-    const raw = sides.map((t) => pool[t] + belot[t]);
-
+    if (h.type === "anulata" || h.type === "belot") {
+      return { bile: sides.map(() => 0), raw: sides.map(() => 0), bt: false, status: h.type };
+    }
+    const bela = sides.map((t) => h.decl[t].filter((x) => x === "b").length * DECL.b.v);
+    const comb = sides.map((t) => h.opt ? 0 : h.decl[t].filter((x) => x !== "b").reduce((s, x) => s + DECL[x].v, 0));
+    const raw = sides.map((t) => h.points[t] + comb[t] + bela[t]);
     const b = h.bidder;
     const opps = sides.filter((t) => t !== b);
-    const best = Math.max(...opps.map((t) => raw[t]));
-    const sum = pool.reduce((s, x) => s + x, 0);
-    const award = sides.map(() => 0);
-    let hangRaw = 0, status;
-    if (raw[b] > best) {
-      status = "made";
-      if (h.mult > 1) award[b] = sum;
-      else sides.forEach((t) => { award[t] = pool[t]; });
-    } else if (raw[b] < best) {
-      status = "inside";
-      opps.forEach((t) => { award[t] = pool[t] + pool[b] / opps.length; });
+    let bile, bt;
+
+    if (mode === "3") {
+      // Se adună bilele rotunjite ale celor care nu au jucat și se scad din totalul jocului.
+      const game = toBile(raw.reduce((s, x) => s + x, 0));
+      bile = sides.map((t) => (t === b ? 0 : toBile(raw[t])));
+      bile[b] = game - opps.reduce((s, t) => s + bile[t], 0);
+      // Întâi după bile, apoi (la egalitate de bile) după puncte.
+      bt = opps.some((t) => bile[b] < bile[t] || (bile[b] === bile[t] && raw[b] < raw[t]));
     } else {
-      status = "hanging";
-      opps.forEach((t) => { award[t] = pool[t]; });
-      hangRaw = pool[b];
+      bile = mode === "1v1" ? raw.map((x) => x / 10) : raw.map(toBile);
+      bt = opps.some((t) => raw[b] < raw[t]);
     }
-    const pts = sides.map((t) => toGame(award[t] + belot[t], kind) * h.mult);
-    // Penalties (no tricks taken, or a broken rule) are 10 game points each and are not doubled.
+    if (bt) bile[b] = mode === "1v1" ? bela[b] / 10 : toBile(bela[b]); // Bela se socotește mereu
     const pen = h.penalty || [];
-    sides.forEach((t) => { pts[t] -= (pen[t] || 0) * PENALTY; });
-    return { pts, raw, status, hang: toGame(hangRaw, kind) * h.mult };
+    bile = bile.map((x, t) => r1(x - (pen[t] || 0) * PENALTY));
+    return { bile, raw, bt, status: bt ? "bt" : "ok" };
   }
 
-  function uniqueMax(arr) {
-    const m = Math.max(...arr);
-    return arr.filter((x) => x === m).length === 1 ? arr.indexOf(m) : null;
-  }
-
-  // Runs every hand in order: running totals, hanging points, and the winner.
-  function computeGame(hands, target, n) {
-    let totals = range(n).map(() => 0), carry = 0, winner = null;
-    const rows = hands.map((h) => {
-      const r = scoreHand(h);
-      const pts = r.pts.slice();
-      let carryIn = 0, carryTo = null;
-      if (carry > 0) {
-        const top = uniqueMax(pts);
-        if (top !== null) { carryTo = top; pts[top] += carry; carryIn = carry; carry = 0; }
+  // Parcurge rundele în ordine: totaluri, BT-uri, limita jocului și câștigătorul.
+  function computeGame(hands, target, mode) {
+    const n = MODES[mode].sides;
+    let totals = range(n).map(() => 0);
+    const bts = range(n).map(() => 0);
+    let limit = target, winner = null, winBy = null;
+    const raises = [];
+    const rows = hands.map((h, i) => {
+      const r = scoreHand(h, mode);
+      const bile = r.bile.slice();
+      let btPenalty = false;
+      if (r.bt) {
+        bts[h.bidder]++;
+        if (bts[h.bidder] % BT_LIMIT === 0) { bile[h.bidder] = r1(bile[h.bidder] - PENALTY); btPenalty = true; }
       }
-      carry += r.hang;
-      totals = totals.map((x, t) => x + pts[t]);
-      if (winner === null && Math.max(...totals) >= target) winner = uniqueMax(totals);
-      return { hand: h, result: r, pts, carryIn, carryTo, totals: totals.slice() };
+      totals = totals.map((x, t) => r1(x + bile[t]));
+      if (winner === null) {
+        if (h.type === "belot") { winner = h.side; winBy = "belot"; }
+        else {
+          let over = range(n).filter((t) => totals[t] > limit);
+          while (over.length > 1) {
+            limit += 50;
+            raises.push({ hand: i, limit });
+            over = range(n).filter((t) => totals[t] > limit);
+          }
+          if (over.length === 1) { winner = over[0]; winBy = "bile"; }
+        }
+      }
+      return { hand: h, result: r, bile, btPenalty, totals: totals.slice(), bts: bts.slice() };
     });
-    return { rows, totals, carry, winner };
+    return { rows, totals, bts, limit, raises, winner, winBy };
   }
 
-  // ---------- state ----------
+  // ---------- stare ----------
 
-  let state = { mode: "teams", players: 3, teamNames: DEFAULT_TEAMS.slice(), playerNames: DEFAULT_PLAYERS.slice(), target: 151, hands: [] };
+  let state = {
+    mode: "2v2", target: 51, reduced: false, hands: [],
+    names: { "1v1": MODES["1v1"].defaults.slice(), "3": MODES["3"].defaults.slice(), "2v2": MODES["2v2"].defaults.slice() }
+  };
   try {
     const saved = JSON.parse(localStorage.getItem(STORE_KEY) || "null");
-    if (saved && Array.isArray(saved.hands)) {
-      if (Array.isArray(saved.names) && !saved.teamNames) saved.teamNames = saved.names; // first version stored only team names
-      delete saved.names;
+    if (saved && Array.isArray(saved.hands) && MODES[saved.mode]) {
+      saved.names = Object.assign({}, state.names, saved.names || {});
       state = Object.assign(state, saved);
     }
-  } catch (e) { /* storage unavailable: start fresh */ }
+  } catch (e) { /* fără stocare: începem de la zero */ }
 
-  function sideCount() { return state.mode === "teams" ? 2 : state.players; }
-  function names() { return state.mode === "teams" ? state.teamNames : state.playerNames; }
-  function sideName(t) {
-    const fallback = state.mode === "teams" ? "Team " + (t + 1) : "Player " + (t + 1);
-    return (names()[t] || "").trim() || fallback;
-  }
+  function mode() { return MODES[state.mode]; }
+  function sideCount() { return mode().sides; }
+  function sideName(t) { return (state.names[state.mode][t] || "").trim() || mode().defaults[t]; }
+  function fmt(x) { return state.mode === "1v1" ? x.toFixed(1).replace(".", ",") : String(x); }
 
   function freshDraft(prev) {
     const n = sideCount();
     return {
       bidder: prev && prev.bidder < n ? prev.bidder : 0,
-      contract: prev ? prev.contract : "h",
-      mult: 1,
-      tricks: range(n).map(() => ""),
+      trump: prev ? prev.trump : "h",
+      points: range(n).map(() => ""),
       manual: range(n).map(() => false),
-      capot: null,
       decl: range(n).map(() => []),
-      penalty: range(n).map(() => 0)
+      penalty: range(n).map(() => 0),
+      opt: false
     };
   }
 
@@ -438,56 +444,54 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
   let confirmingNewGame = false;
 
   function save() {
-    try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) { /* ignore */ }
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) { /* ignorăm */ }
   }
 
-  function draftKind() { return CONTRACTS[draft.contract].kind; }
-  function draftTotal() { return CARD_TOTAL[draftKind()]; }
-  function trumpSuit(contract) { const c = CONTRACTS[contract]; return c.kind === "suit" ? c.sym : "♥"; }
-
-  // Returns a hand object when the draft is complete, otherwise an error message.
-  function draftToHand() {
-    const total = draftTotal();
+  // Câte combinații de 100+ a arătat fiecare jucător în rundele anterioare (pentru combinațiile reduse).
+  function bigCombosShown() {
     const n = sideCount();
-    let tricks;
-    if (draft.capot !== null) {
-      tricks = range(n).map((t) => (t === draft.capot ? total : 0));
-    } else {
-      if (draft.tricks.every((x) => x === "")) return { error: "Enter the trick points." };
-      tricks = draft.tricks.map((x) => (x === "" ? 0 : Number(x)));
-      if (tricks.some((x) => !Number.isInteger(x) || x < 0)) return { error: "Trick points must be whole numbers." };
-      const sum = tricks.reduce((s, x) => s + x, 0);
-      if (sum !== total) return { error: "Trick points must add up to " + total + " (now " + sum + ")." };
-    }
-    const kind = draftKind();
+    const count = range(n).map(() => 0);
+    state.hands.forEach((h) => {
+      if (h.type !== "normala" || h.opt) return;
+      h.decl.forEach((list, t) => { count[t] += list.filter((k) => DECL[k].big).length; });
+    });
+    return count;
+  }
+
+  function draftToHand() {
+    const n = sideCount();
+    if (draft.points.every((x) => x === "")) return { error: "Introduceți punctele din cărți." };
+    const points = draft.points.map((x) => (x === "" ? 0 : Number(x)));
+    if (points.some((x) => !Number.isInteger(x) || x < 0)) return { error: "Punctele trebuie să fie numere întregi." };
+    const sum = points.reduce((s, x) => s + x, 0);
+    if (sum !== CARD_TOTAL) return { error: "Punctele din cărți trebuie să dea " + CARD_TOTAL + " (acum " + sum + ")." };
     return {
       hand: {
+        type: "normala",
         bidder: draft.bidder,
-        contract: draft.contract,
-        mult: draft.mult,
-        tricks,
-        capot: draft.capot,
-        decl: kind === "nt" ? range(n).map(() => []) : draft.decl.map((l) => l.slice()),
-        penalty: draft.penalty.slice()
+        trump: draft.trump,
+        points,
+        decl: draft.decl.map((l) => l.slice()),
+        penalty: draft.penalty.slice(),
+        opt: draft.opt
       }
     };
   }
 
-  // Fill in the last trick box automatically once every other side has a number.
-  function autofillTricks(changed) {
+  // Ultima căsuță se completează singură când toate celelalte au un număr.
+  function autofillPoints(changed) {
     const n = sideCount();
-    const total = draftTotal();
     const open = range(n).filter((t) => !draft.manual[t]);
     if (open.length === 1) {
       const last = open[0];
-      const sum = range(n).filter((t) => t !== last).reduce((s, t) => s + (Number(draft.tricks[t]) || 0), 0);
-      draft.tricks[last] = String(Math.max(0, total - sum));
+      const sum = range(n).filter((t) => t !== last).reduce((s, t) => s + (Number(draft.points[t]) || 0), 0);
+      draft.points[last] = String(Math.max(0, CARD_TOTAL - sum));
     } else {
-      open.forEach((t) => { if (t !== changed) draft.tricks[t] = ""; });
+      open.forEach((t) => { if (t !== changed) draft.points[t] = ""; });
     }
   }
 
-  // ---------- rendering helpers ----------
+  // ---------- ajutoare pentru afișare ----------
 
   function el(tag, attrs, children) {
     const n = document.createElement(tag);
@@ -501,53 +505,52 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
     return n;
   }
 
-  function cardIcons(declKey, trump, large) {
-    const list = DECL[declKey].cards(trump);
-    return el("span", { class: "cards" + (large ? " lg" : ""), "aria-hidden": "true" }, list.map(([rank, suit]) =>
+  function cardRow(list, extra) {
+    return el("span", { class: "cards" + (extra ? " " + extra : ""), "aria-hidden": "true" }, list.map(([rank, suit]) =>
       el("span", { class: "card" + (suit === "♥" || suit === "♦" ? " red" : "") }, [rank, el("i", { text: suit })])));
   }
+  function cardIcons(key, trump, large) { return cardRow(DECL[key].cards(trump), large ? "lg" : ""); }
+  const fourOf = (rank) => ALL_SUITS.map((s) => [rank, s]);
+  const allTrumps = (s) => ["7", "8", "9", "10", "J", "Q", "K", "A"].map((r) => [r, s]);
 
-  function contractLabel(h) {
-    const c = CONTRACTS[h.contract];
+  function trumpLabel(key) {
+    const s = SUITS[key];
     const frag = document.createDocumentFragment();
-    if (c.kind === "suit") frag.append(el("span", { class: c.red ? "red" : "", text: c.sym + " " }));
-    frag.append(c.label);
-    if (h.mult === 2) frag.append(" ×2");
-    if (h.mult === 4) frag.append(" ×4");
+    frag.append(el("span", { class: s.red ? "red" : "", text: s.sym + " " }), s.label);
     return frag;
   }
 
-  // ---------- rendering ----------
+  // ---------- afișare ----------
 
   function renderSetup() {
     const locked = state.hands.length > 0;
     const choose = (fn) => () => { fn(); draft = freshDraft(draft); save(); render(); };
-    $("modeSeg").replaceChildren(...[["teams", "2 teams"], ["solo", "Individually"]].map(([m, label]) =>
+    $("modeSeg").replaceChildren(...Object.keys(MODES).map((m) =>
       el("button", {
         type: "button", class: "chip", "aria-pressed": String(state.mode === m), disabled: locked,
         onclick: choose(() => { state.mode = m; })
-      }, [label])));
-    $("playersField").hidden = state.mode !== "solo";
-    $("playersSeg").replaceChildren(...[2, 3, 4].map((p) =>
+      }, [MODES[m].label])));
+    $("targetSeg").replaceChildren(...[51, 101].map((v) =>
       el("button", {
-        type: "button", class: "chip", "aria-pressed": String(state.players === p), disabled: locked,
-        onclick: choose(() => { state.players = p; })
-      }, [String(p)])));
-    $("setupNote").textContent = locked ? "Start a new game to change this." : "";
+        type: "button", class: "chip", "aria-pressed": String(state.target === v), disabled: locked,
+        onclick: choose(() => { state.target = v; })
+      }, [v + " bile"])));
+    $("reduced").checked = state.reduced;
+    $("reduced").disabled = locked;
+    $("setupNote").textContent = locked ? "Pentru a schimba setările începeți un joc nou." : "";
   }
 
   let sheetKey = "";
   function buildSheet() {
     const n = sideCount();
-    const key = state.mode + n;
-    if (key === sheetKey) return;
-    sheetKey = key;
+    if (sheetKey === state.mode) return;
+    sheetKey = state.mode;
     $("sheet").classList.toggle("many", n > 2);
     const head = $("sheetHead");
     head.style.gridTemplateColumns = "repeat(" + n + ", minmax(0, 1fr))";
     head.replaceChildren(...range(n).map((t) => {
-      const input = el("input", { class: "name", id: "name" + t, maxlength: "24", "aria-label": (state.mode === "teams" ? "Team " : "Player ") + (t + 1) + " name" });
-      input.addEventListener("input", () => { names()[t] = input.value; save(); render(); });
+      const input = el("input", { class: "name", id: "name" + t, maxlength: "24", "aria-label": "Numele pentru " + mode().defaults[t] });
+      input.addEventListener("input", () => { state.names[state.mode][t] = input.value; save(); render(); });
       return el("div", { class: "team", id: "team" + t }, [
         input,
         el("div", { class: "total num", id: "total" + t, text: "0" }),
@@ -557,38 +560,43 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
     }));
   }
 
+  function uniqueMax(arr) {
+    const m = Math.max(...arr);
+    return arr.filter((x) => x === m).length === 1 ? arr.indexOf(m) : null;
+  }
+
   function renderSheet(game) {
     buildSheet();
-    const target = state.target;
     const n = sideCount();
     const lead = uniqueMax(game.totals);
     range(n).forEach((t) => {
       const total = game.totals[t];
-      $("total" + t).textContent = total;
-      $("bar" + t).style.width = Math.max(0, Math.min(100, (total / target) * 100)) + "%";
-      $("togo" + t).textContent = total >= target ? "Reached " + target : (target - total) + " to go";
+      $("total" + t).textContent = fmt(total);
+      $("bar" + t).style.width = Math.max(0, Math.min(100, (total / game.limit) * 100)) + "%";
+      const left = r1(game.limit - total);
+      const kids = [el("span", { text: total > game.limit ? "Peste " + game.limit : "mai are " + fmt(left) + " până la " + game.limit })];
+      if (game.bts[t]) kids.push(el("span", { class: "bt-count", text: "BT: " + (game.bts[t] % BT_LIMIT) + "/" + BT_LIMIT }));
+      $("togo" + t).replaceChildren(...kids);
       $("team" + t).classList.toggle("leader", lead === t && total > 0);
       const nameInput = $("name" + t);
-      if (document.activeElement !== nameInput) nameInput.value = names()[t];
+      if (document.activeElement !== nameInput) nameInput.value = state.names[state.mode][t];
     });
 
-    const hang = $("hangNote");
-    hang.hidden = !(game.carry > 0 && game.winner === null);
-    hang.textContent = game.carry + " points are hanging and go to the winner of the next hand.";
+    const note = $("limitNote");
+    note.hidden = game.limit === state.target;
+    note.textContent = "Mai mulți jucători au trecut de limită, așa că limita jocului a crescut la " + game.limit + " bile.";
 
     const banner = $("banner");
-    const max = Math.max(...game.totals);
     if (game.winner !== null) {
       banner.hidden = false;
-      const others = game.totals.filter((_, t) => t !== game.winner).join(", ");
-      const verb = state.mode === "teams" ? " win " : " wins ";
+      const others = game.totals.filter((_, t) => t !== game.winner).map(fmt).join(", ");
+      const text = game.winBy === "belot"
+        ? sideName(game.winner) + " câștigă cu combinația BELOT"
+        : sideName(game.winner) + " câștigă cu " + fmt(game.totals[game.winner]) + " la " + others;
       banner.replaceChildren(
-        el("strong", { text: sideName(game.winner) + verb + game.totals[game.winner] + " to " + others }),
-        el("button", { class: "btn primary", type: "button", text: "Play again", onclick: startNewGame })
+        el("strong", { text }),
+        el("button", { class: "btn primary", type: "button", text: "Joc nou", onclick: startNewGame })
       );
-    } else if (max >= target) {
-      banner.hidden = false;
-      banner.replaceChildren(el("span", { text: "Tied at the top above " + target + ". Play another hand to decide it." }));
     } else {
       banner.hidden = true;
     }
@@ -597,117 +605,105 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
   function renderForm(game) {
     const over = game.winner !== null;
     const n = sideCount();
-    $("handTitle").textContent = "Hand " + (state.hands.length + 1);
+    $("handTitle").textContent = "Runda " + (state.hands.length + 1);
+    $("bidderLabel").textContent = state.mode === "2v2" ? "Perechea care a ales cozul" : "A ales cozul";
 
     $("bidderSeg").replaceChildren(...range(n).map((t) => el("button", {
       type: "button", class: "chip", "aria-pressed": String(draft.bidder === t),
       onclick: () => { draft.bidder = t; render(); }
     }, [sideName(t)])));
 
-    $("contractSeg").replaceChildren(...Object.keys(CONTRACTS).map((key) => {
-      const c = CONTRACTS[key];
-      const kids = c.kind === "suit"
-        ? [el("span", { class: "sym" + (c.red ? " red" : ""), text: c.sym, "aria-hidden": "true" }), c.label]
-        : [c.label];
+    $("trumpSeg").replaceChildren(...Object.keys(SUITS).map((key) => {
+      const s = SUITS[key];
       return el("button", {
-        type: "button", class: "chip", "aria-pressed": String(draft.contract === key),
-        onclick: () => {
-          const before = draftTotal();
-          draft.contract = key;
-          if (draftTotal() !== before) { draft.tricks = range(n).map(() => ""); draft.manual = range(n).map(() => false); }
-          trimBelots();
-          render();
-        }
-      }, kids);
+        type: "button", class: "chip", "aria-pressed": String(draft.trump === key),
+        onclick: () => { draft.trump = key; render(); }
+      }, [el("span", { class: "sym" + (s.red ? " red" : ""), text: s.sym, "aria-hidden": "true" }), s.label]);
     }));
 
-    $("multSeg").replaceChildren(...[[1, "None"], [2, "Double ×2"], [4, "Redouble ×4"]].map(([m, label]) =>
-      el("button", {
-        type: "button", class: "chip", "aria-pressed": String(draft.mult === m),
-        onclick: () => { draft.mult = m; render(); }
-      }, [label])));
-
-    const kind = draftKind();
-    const total = draftTotal();
-    const trump = trumpSuit(draft.contract);
-    const belotLimit = kind === "suit" ? 1 : 4;
-    const belotsUsed = draft.decl.reduce((s, l) => s + l.filter((x) => x === "b").length, 0);
+    const trump = SUITS[draft.trump].sym;
+    const belaUsed = draft.decl.reduce((s, l) => s + l.filter((x) => x === "b").length, 0);
+    const shown = bigCombosShown();
 
     $("cols").replaceChildren(...range(n).map((t) => {
       const name = sideName(t);
-      const capotOn = draft.capot === t;
-      const trickVal = draft.capot !== null ? (capotOn ? total : 0) : draft.tricks[t];
       const input = el("input", {
-        id: "tricks" + t, type: "number", inputmode: "numeric", min: "0", max: String(total), step: "1",
-        placeholder: "0–" + total, value: trickVal, disabled: draft.capot !== null,
-        "aria-label": name + " trick points"
+        id: "points" + t, type: "number", inputmode: "numeric", min: "0", max: String(CARD_TOTAL), step: "1",
+        placeholder: "0–" + CARD_TOTAL, value: draft.points[t], "aria-label": "Punctele din cărți pentru " + name
       });
       input.addEventListener("input", () => {
-        draft.tricks[t] = input.value;
+        draft.points[t] = input.value;
         draft.manual[t] = input.value !== "";
         if (n === 2) draft.manual[1 - t] = false;
-        autofillTricks(t);
-        range(n).forEach((o) => { if (o !== t) { const other = $("tricks" + o); if (other) other.value = draft.tricks[o]; } });
-        renderPreview(computeGame(state.hands, state.target, n));
+        autofillPoints(t);
+        range(n).forEach((o) => { if (o !== t) { const other = $("points" + o); if (other) other.value = draft.points[o]; } });
+        renderPreview(computeGame(state.hands, state.target, state.mode));
       });
 
-      const capot = el("label", { class: "capot", title: "Capot: one side takes all 8 tricks and gets 90 extra points" }, [
-        el("input", {
-          type: "checkbox", id: "capot" + t, checked: capotOn,
-          onchange: (e) => { draft.capot = e.target.checked ? t : null; render(); }
-        }),
-        "Capot ", el("small", { text: "took all 8 tricks, +90" })
-      ]);
-
+      const bigBlocked = state.reduced && shown[t] >= 2;
       const declBtns = el("div", { class: "decl-btns" }, Object.keys(DECL).map((k) => {
-        const isBelot = k === "b";
-        const disabled = kind === "nt" || (isBelot && belotsUsed >= belotLimit);
+        const disabled = (k === "b" && belaUsed >= 1) || (DECL[k].big && bigBlocked);
         return el("button", {
           type: "button", disabled,
-          title: kind === "nt" ? "No declarations in no trumps" : "Add " + DECL[k].long,
-          "aria-label": "Add " + DECL[k].long + ", " + DECL[k].v + " points",
+          title: DECL[k].big && bigBlocked ? "Combinații reduse: a arătat deja două combinații de 100+" : "Adaugă " + DECL[k].long,
+          "aria-label": "Adaugă " + DECL[k].long + ", " + DECL[k].v + " puncte",
           onclick: () => { draft.decl[t].push(k); render(); }
         }, [cardIcons(k, trump), el("span", {}, [DECL[k].label + " ", el("small", { text: "+" + DECL[k].v })])]);
       }));
 
-      const list = draft.decl[t].length && kind !== "nt"
-        ? draft.decl[t].map((k, i) => el("span", { class: "tag" + (k === "b" ? " belot" : "") }, [
+      const list = draft.decl[t].length
+        ? draft.decl[t].map((k, i) => el("span", { class: "tag" + (k === "b" ? " bela" : "") + (draft.opt && k !== "b" ? " void" : "") }, [
             cardIcons(k, trump),
             DECL[k].label + " " + DECL[k].v,
             el("button", {
-              type: "button", "aria-label": "Remove " + DECL[k].label, text: "×",
+              type: "button", "aria-label": "Șterge " + DECL[k].label, text: "×",
               onclick: () => { draft.decl[t].splice(i, 1); render(); }
             })
           ]))
-        : [el("span", { class: "empty-decl", text: kind === "nt" ? "No declarations in no trumps" : "No declarations" })];
+        : [el("span", { class: "empty-decl", text: "Fără combinații" })];
 
-      const trickRow = [input];
-      if (n > 2 && draft.capot === null) {
-        const sum = draft.tricks.reduce((s, x) => s + (Number(x) || 0), 0);
-        if (t === n - 1) trickRow.push(el("span", { class: "remaining", text: (total - sum) + " left of " + total }));
+      const pointsRow = [input];
+      if (n > 2 && t === n - 1) {
+        const sum = draft.points.reduce((s, x) => s + (Number(x) || 0), 0);
+        pointsRow.push(el("span", { class: "remaining", text: "au rămas " + (CARD_TOTAL - sum) + " din " + CARD_TOTAL }));
       }
 
+      const declKids = [el("span", { class: "label", text: "Combinații" }), declBtns, el("div", { class: "decl-list" }, list)];
+      if (state.reduced) declKids.push(el("span", { class: "hint", text: "Combinații de 100+ arătate: " + shown[t] + (bigBlocked ? " (nu mai poate arăta altele)" : " din 2") }));
+
       return el("div", { class: "col" }, [
-        el("h3", {}, [name, draft.bidder === t ? el("span", { class: "bidtag", text: "bid" }) : ""]),
-        el("div", { class: "field" }, [el("span", { class: "label", text: "Trick points" }), el("div", { class: "tricks" }, trickRow)]),
-        capot,
+        el("h3", {}, [name, draft.bidder === t ? el("span", { class: "bidtag", text: "a ales cozul" }) : ""]),
+        el("div", { class: "field" }, [el("span", { class: "label", text: "Puncte din cărți (cu ultima)" }), el("div", { class: "tricks" }, pointsRow)]),
+        el("div", { class: "field" }, declKids),
         el("div", { class: "penalty" }, [
           el("button", {
-            type: "button", class: "pen-btn", title: "Took no tricks or broke a rule",
-            "aria-label": "Give " + name + " a 10 point penalty",
+            type: "button", class: "pen-btn", title: "Nu a luat nicio carte sau a încălcat o regulă",
+            "aria-label": "Penalizare de 10 bile pentru " + name,
             onclick: () => { draft.penalty[t]++; render(); }
-          }, ["−10 ", el("small", { text: "no tricks or broke a rule" })]),
+          }, ["−10 bile ", el("small", { text: "n-a luat nicio carte" })]),
           draft.penalty[t] ? el("span", { class: "tag pen" }, [
-            "−" + draft.penalty[t] * PENALTY,
+            "−" + draft.penalty[t] * PENALTY + " bile",
             el("button", {
-              type: "button", "aria-label": "Remove one penalty", text: "×",
+              type: "button", "aria-label": "Șterge o penalizare", text: "×",
               onclick: () => { draft.penalty[t]--; render(); }
             })
           ]) : ""
-        ]),
-        el("div", { class: "field" }, [el("span", { class: "label", text: "Declarations" }), declBtns, el("div", { class: "decl-list" }, list)])
+        ])
       ]);
     }));
+
+    $("opt").checked = draft.opt;
+    $("optCards").replaceChildren(cardRow(fourOf("8"), "tight"));
+    $("annulRow").replaceChildren(el("button", {
+      type: "button", class: "btn", onclick: () => addSpecial({ type: "anulata" })
+    }, [cardRow(fourOf("7"), "tight"), "Patru de șapte: runda se anulează"]));
+    $("belotRow").replaceChildren(
+      cardRow(allTrumps(trump), "tight"),
+      el("span", { text: "Combinația BELOT, câștig instant:" }),
+      ...range(n).map((t) => el("button", {
+        type: "button", class: "btn", text: sideName(t), onclick: () => addSpecial({ type: "belot", side: t })
+      }))
+    );
 
     [...$("handForm").querySelectorAll("button, input")].forEach((node) => { if (over) node.disabled = true; });
     renderPreview(game);
@@ -717,26 +713,20 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
     const box = $("preview");
     const btn = $("addHand");
     if (game.winner !== null) {
-      box.textContent = "Game over. Undo the last hand or start a new game.";
+      box.textContent = "Jocul s-a terminat. Anulați ultima rundă sau începeți un joc nou.";
       btn.disabled = true;
       return;
     }
     const res = draftToHand();
-    if (res.error) {
-      box.textContent = res.error;
-      btn.disabled = true;
-      return;
-    }
+    if (res.error) { box.textContent = res.error; btn.disabled = true; return; }
     btn.disabled = false;
-    const r = scoreHand(res.hand);
-    const statusText = { made: "Made", inside: "Inside", hanging: "Hanging" }[r.status];
-    const parts = [el("span", { class: "status " + r.status, text: statusText })];
-    r.pts.forEach((p, t) => {
+    const r = scoreHand(res.hand, state.mode);
+    const parts = [el("span", { class: "status " + r.status, text: r.bt ? "BT" : "A făcut" })];
+    r.bile.forEach((p, t) => {
       if (t) parts.push(" · ");
-      parts.push(sideName(t) + " ", el("b", { text: String(p) }));
+      parts.push(sideName(t) + " ", el("b", { text: fmt(p) }));
     });
-    if (r.hang) parts.push(" · " + r.hang + " hanging");
-    parts.push(el("span", { class: "hand-meta", text: "  (raw " + r.raw.join(" / ") + ")" }));
+    parts.push(el("span", { class: "hand-meta", text: "  (puncte " + r.raw.join(" / ") + ")" }));
     box.replaceChildren(...parts);
   }
 
@@ -744,32 +734,44 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
     const n = sideCount();
     $("headRow").replaceChildren(
       el("th", { text: "#" }),
-      el("th", { text: "Contract" }),
+      el("th", { text: "Runda" }),
       ...range(n).map((t) => el("th", { class: "pts" + (t ? " sep" : ""), text: sideName(t), title: sideName(t) })),
-      el("th", { class: "del" }, [el("span", { class: "sr", text: "Delete" })])
+      el("th", { class: "del" }, [el("span", { class: "sr", text: "Șterge" })])
     );
     const body = $("rows");
     if (!game.rows.length) {
-      body.replaceChildren(el("tr", {}, [el("td", { colspan: String(n + 3), class: "empty", text: "No hands yet. Fill in the first hand above and press Add hand." })]));
+      body.replaceChildren(el("tr", {}, [el("td", { colspan: String(n + 3), class: "empty", text: "Încă nu sunt runde. Completați prima rundă mai sus și apăsați Adaugă runda." })]));
       return;
     }
     body.replaceChildren(...game.rows.map((row, i) => {
       const h = row.hand;
       const r = row.result;
-      const meta = [r.status, "bid by " + sideName(h.bidder)];
-      if (h.capot !== null) meta.push("capot by " + sideName(h.capot));
-      h.decl.forEach((list, t) => {
-        if (list.length) meta.push(sideName(t) + ": " + list.map((k) => DECL[k].label).join(", "));
-      });
-      if (row.carryIn) meta.push("+" + row.carryIn + " hanging to " + sideName(row.carryTo));
-      (h.penalty || []).forEach((c, t) => { if (c) meta.push(sideName(t) + " penalty −" + c * PENALTY); });
-      if (r.hang) meta.push(r.hang + " left hanging");
+      let title, meta = [];
+      if (h.type === "anulata") { title = "Rundă anulată"; meta.push("patru de șapte, cărțile se dau din nou"); }
+      else if (h.type === "belot") { title = "Combinația BELOT"; meta.push(sideName(h.side) + " câștigă instant"); }
+      else {
+        title = trumpLabel(h.trump);
+        meta.push("cozul ales de " + sideName(h.bidder));
+        if (r.bt) meta.push("BT");
+        if (row.btPenalty) meta.push("al " + BT_LIMIT + "-lea BT: −" + PENALTY + " bile");
+        if (h.opt) meta.push("patru de opt: combinațiile anulate");
+        h.decl.forEach((list, t) => { if (list.length) meta.push(sideName(t) + ": " + list.map((k) => DECL[k].label).join(", ")); });
+        (h.penalty || []).forEach((c, t) => { if (c) meta.push(sideName(t) + " −" + c * PENALTY + " bile"); });
+      }
+      game.raises.filter((x) => x.hand === i).forEach((x) => meta.push("limita crește la " + x.limit));
       return el("tr", {}, [
         el("td", { class: "num", text: String(i + 1) }),
-        el("td", {}, [el("div", { class: "hand-contract" }, [contractLabel(h)]), el("div", { class: "hand-meta", text: meta.join(" · ") })]),
-        ...range(n).map((t) => el("td", { class: "pts num" + (t ? " sep" : "") }, [String(row.pts[t]), el("span", { class: "run", text: String(row.totals[t]) })])),
+        el("td", {}, [el("div", { class: "hand-contract" }, [title]), el("div", { class: "hand-meta", text: meta.join(" · ") })]),
+        ...range(n).map((t) => {
+          const isBt = r.bt && h.bidder === t;
+          return el("td", { class: "pts num" + (t ? " sep" : "") }, [
+            isBt ? el("span", { class: "bt", text: "BT " }) : "",
+            fmt(row.bile[t]),
+            el("span", { class: "run", text: fmt(row.totals[t]) })
+          ]);
+        }),
         el("td", { class: "del" }, [el("button", {
-          type: "button", "aria-label": "Delete hand " + (i + 1), text: "×",
+          type: "button", "aria-label": "Șterge runda " + (i + 1), text: "×",
           onclick: () => { state.hands.splice(i, 1); save(); render(); }
         })])
       ]);
@@ -777,18 +779,16 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
   }
 
   function renderTop() {
-    const t = $("target");
-    if (document.activeElement !== t) t.value = state.target;
     const box = $("newGameBox");
     if (confirmingNewGame) {
       box.replaceChildren(el("span", { class: "confirm" }, [
-        "Clear all hands?",
-        el("button", { class: "btn danger", type: "button", text: "Clear", onclick: startNewGame }),
-        el("button", { class: "btn", type: "button", text: "Cancel", onclick: () => { confirmingNewGame = false; render(); } })
+        "Ștergeți toate rundele?",
+        el("button", { class: "btn danger", type: "button", text: "Șterge", onclick: startNewGame }),
+        el("button", { class: "btn", type: "button", text: "Renunță", onclick: () => { confirmingNewGame = false; render(); } })
       ]));
     } else {
       box.replaceChildren(el("button", {
-        class: "btn danger", type: "button", text: "New game", disabled: !state.hands.length,
+        class: "btn danger", type: "button", text: "Joc nou", disabled: !state.hands.length,
         onclick: () => { confirmingNewGame = true; render(); }
       }));
     }
@@ -797,30 +797,42 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
 
   function renderRules() {
     const row = (key) => [el("dt", {}, [cardIcons(key, "♥", true), el("span", { text: DECL[key].long })]), el("dd", { text: String(DECL[key].v) })];
+    const cardsRow = (cards, label, v) => [el("dt", {}, [cardRow(cards, "lg tight"), el("span", { text: label })]), el("dd", { text: v })];
     const plain = (label, v) => [el("dt", {}, [el("span"), el("span", { text: label })]), el("dd", { text: v })];
     const block = (title, kids) => el("div", {}, [el("h4", { text: title }), el("dl", {}, kids.flat())]);
     const p = (b, text) => el("p", {}, b ? [el("b", { text: b + " " }), text] : [text]);
     $("rulesGrid").replaceChildren(
-      block("In a row (same suit)", [row("t"), row("q"), row("f")]),
-      block("Four of a kind (carré)", [row("cj"), row("c9"), row("c4")]),
-      block("Suit bonus and capot", [row("b"), plain("Capot, one side takes all 8 tricks", "90"), plain("Last trick", "10"), plain("Penalty, no tricks or a broken rule", "−10")]),
-      block("Points in the cards", [plain("Suit (♣ ♦ ♥ ♠)", "162"), plain("All trumps", "258"), plain("No trumps, counted ×2", "130")]),
+      block("Combinații la rând (aceeași culoare)", [row("t"), row("j"), row("o")]),
+      block("Patru cărți de același fel", [row("p4"), row("p9"), row("pv")]),
+      block("Bela și cazuri speciale", [
+        row("b"),
+        cardsRow(allTrumps("♥"), "Combinația BELOT, toți cozii de la 7 la A", "câștig instant"),
+        cardsRow(fourOf("7"), "Patru de șapte", "runda se anulează"),
+        cardsRow(fourOf("8"), "Patru de opt", "anulează combinațiile")
+      ]),
+      block("Valoarea cărților", [
+        plain("Șapte, opt, nouă", "0"), plain("Nouă de coz", "14"), plain("Zece", "10"),
+        plain("Valet", "2"), plain("Valet de coz", "20"), plain("Damă", "3"), plain("Crai", "4"), plain("Tuz", "11"),
+        plain("Ultima mână", "+10")
+      ]),
       el("div", { class: "rules-wide" }, [
-        el("h4", { text: "How a hand is scored" }),
-        p("", "Raw points are divided by 10 and rounded. In a suit game 7 and up rounds up (86 → 8, 87 → 9). In all trumps and no trumps 5 and up rounds up."),
-        p("", "Sequences and belot are shown here in hearts; on the form they use the trump suit. Sequences count in any suit. No declarations or belot count in no trumps. In all trumps every K + Q pair counts as a belot."),
-        p("Capot:", "when one side takes every trick (valat), it scores 90 extra raw points, which is 9 game points."),
-        p("Inside:", "if the side that took the contract scores less than an opponent, it loses its points. With two teams the defenders get everything. With individual players the bidder's points are shared equally among the other players."),
-        p("Hanging:", "on a tie, the opponents keep their points. The bidder's points carry over to whoever scores most in the next hand."),
-        p("Double / redouble:", "if the contract is made the bidder takes every point of the hand. Everything is multiplied by 2 or 4."),
-        p("Penalty:", "−10 game points for a side that took no tricks or broke a rule. It comes off after the hand is scored and is not doubled."),
-        p("Belot is never lost:", "it always stays with the side that called it. Enter only the declarations that count after comparing sequences at the table.")
+        el("h4", { text: "Cum se calculează bilele" }),
+        p("Puncte în bile:", "10 puncte = 1 bilă, 35 puncte = 3 bile, 66 puncte = 7 bile. 5 se rotunjește în jos, 6 în sus."),
+        p("1 vs 1:", "în tabelă se scriu bilele nerotunjite, adică punctele împărțite la 10 (de exemplu 6,4)."),
+        p("În perechi:", "fiecare pereche primește bilele rotunjite ale punctelor sale. Dacă punctele sunt egale, bilele se împart egal (106 la 106 înseamnă 11 la 11). Nu există sistemul „ouălelor”."),
+        p("În 3:", "se adună bilele rotunjite ale celor doi care nu au jucat și se scad din totalul jocului. Restul îi revine celui care a jucat. Exemplu: X joacă cu 64 de puncte, Y are 53, Z are 65. Jocul e din 18 bile (182 de puncte), Y primește 5, Z primește 6, iar X primește 18 − 11 = 7 bile. Se compară întâi bilele, apoi, la egalitate de bile, punctele."),
+        p("BT:", "dacă cel care a ales cozul are mai puțin decât un adversar, i se scrie BT și nu primește bile pentru rundă. Adversarii își primesc bilele lor. La al treilea BT jucătorul primește −10 bile."),
+        p("Bela", "se socotește mereu celui care o are, chiar și cu BT."),
+        p("−10 bile:", "jucătorul care nu a luat nicio carte primește −10 bile."),
+        p("Combinații egale:", "dacă doi jucători au combinații identice, ele se anulează. Combinația în culoarea cozului are prioritate. Hotărâți la masă care combinații se socotesc."),
+        p("Combinații reduse:", "fiecare jucător poate arăta cel mult două combinații de 100 de puncte sau mai mari într-un joc. Dacă într-o rundă îi vine o combinație dublă (de exemplu KKKK + QQQQ), se socotesc toate, apoi nu mai poate arăta altele."),
+        p("Sfârșitul jocului:", "jocul continuă până când un jucător are mai mult de 51 (sau 101) bile. Dacă mai mulți trec de limită în aceeași rundă, limita crește cu 50 de bile (101, 151, 201 etc.).")
       ])
     );
   }
 
   function render() {
-    const game = computeGame(state.hands, state.target, sideCount());
+    const game = computeGame(state.hands, state.target, state.mode);
     renderTop();
     renderSetup();
     renderSheet(game);
@@ -828,12 +840,12 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
     renderRows(game);
   }
 
-  function trimBelots() {
-    const kind = draftKind();
-    if (kind === "nt") return;
-    const limit = kind === "suit" ? 1 : 4;
-    let seen = 0;
-    draft.decl = draft.decl.map((list) => list.filter((k) => k !== "b" || ++seen <= limit));
+  function addSpecial(hand) {
+    if (computeGame(state.hands, state.target, state.mode).winner !== null) return;
+    state.hands.push(hand);
+    draft = freshDraft(draft);
+    save();
+    render();
   }
 
   function startNewGame() {
@@ -844,27 +856,18 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
     render();
   }
 
-  // ---------- events ----------
+  // ---------- evenimente ----------
 
   $("handForm").addEventListener("submit", (e) => {
     e.preventDefault();
     const res = draftToHand();
     if (res.error) return;
-    if (computeGame(state.hands, state.target, sideCount()).winner !== null) return;
-    state.hands.push(res.hand);
-    draft = freshDraft(draft);
-    save();
-    render();
+    addSpecial(res.hand);
   });
 
   $("undo").addEventListener("click", () => { state.hands.pop(); save(); render(); });
-
-  $("target").addEventListener("change", (e) => {
-    const v = parseInt(e.target.value, 10);
-    state.target = Number.isFinite(v) && v > 0 ? v : 151;
-    save();
-    render();
-  });
+  $("opt").addEventListener("change", (e) => { draft.opt = e.target.checked; render(); });
+  $("reduced").addEventListener("change", (e) => { state.reduced = e.target.checked; save(); render(); });
 
   renderRules();
   render();

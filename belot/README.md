@@ -1,14 +1,14 @@
-# Belot Scorekeeper
+# Tabelă Belot
 
-A single-file web app for keeping score in Bulgarian belot. Open `index.html` in any browser; no build step or server needed. Scores are saved in the browser's local storage.
+Tabelă de scor pentru belotul moldovenesc, după regulile de pe [belot.md](https://belot.md/reguli_new.php). Este un singur fișier: deschideți `index.html` în orice browser. Scorul se păstrează în browser.
 
-What it handles:
+Ce urmărește:
 
-- Play as 2 teams, or individually with 2, 3 or 4 players. When playing individually the bidder must beat every other player; if inside, the bidder's points are shared among the others.
-- Contracts: clubs, diamonds, hearts, spades, no trumps, all trumps, with double (×2) and redouble (×4).
-- Trick points: enter one team's points and the other is filled in (162 suit, 258 all trumps, 130 no trumps counted double). Capot (one side takes all 8 tricks) adds 90.
-- Declarations: tierce 20, quarte 50, quint 100, four jacks 200, four nines 150, four A/K/Q/10 100, and belot (K + Q of trumps) 20, each shown with card icons of what it is made of. Declarations are disabled in no trumps.
-- A −10 penalty for a side that took no tricks or broke a rule (not doubled).
-- Rounding to game points (suit: 7+ rounds up; all trumps / no trumps: 5+ rounds up).
-- Inside (contract failed), hanging points on a tie, and the game target (151 by default).
-- Score sheet with running totals, undo and per-hand delete.
+- Mesele 1 vs 1 (bile nerotunjite), în 3 (algoritmul de scădere din totalul jocului) și în perechi.
+- Punctele din cărți (162 cu ultima mână) transformate în bile: 10 = 1, 35 = 3, 66 = 7.
+- Combinațiile, cu desenul cărților: terț 20, jumate de sută 50, o sută 100, patru de 10/D/K/A 100, patru de nouă 150, patru de valet 200, bela 20.
+- BT pentru cel care a ales cozul și a luat mai puțin; la al treilea BT, −10 bile. Bela se socotește mereu.
+- −10 bile pentru jucătorul care nu a luat nicio carte.
+- Cazuri speciale: patru de opt (anulează combinațiile, în afară de bela), patru de șapte (runda se anulează), combinația BELOT (câștig instant).
+- Combinații reduse (opțional): cel mult două combinații de 100+ pe joc, cu excepția combinației duble.
+- Jocul până la 51 sau 101 bile; dacă mai mulți trec de limită, limita crește cu 50.
