@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Young+Serif&family=Figtree:wght@400;500;600;700&display=swap">
 <style>
-/* Layout: a paper score sheet split down the middle (us | them), the hand entry form under it, history ledger last. */
+/* Layout: a paper score sheet split into one column per team or player, the hand entry form under it, history ledger last. */
 :root {
   --bg: #eef1ee;
   --paper: #fbfcfa;
@@ -22,6 +22,8 @@
   --red-soft: #f7e3e4;
   --gold: #8a6510;
   --gold-soft: #f6ecd2;
+  --card: #ffffff;
+  --card-edge: #b9c4bf;
   --font-display: "Young Serif", Georgia, "Times New Roman", serif;
   --font-body: "Figtree", system-ui, -apple-system, "Segoe UI", sans-serif;
   --radius: 10px;
@@ -31,6 +33,7 @@
     --bg: #0d1412; --paper: #151f1c; --ink: #e5ece9; --muted: #96a59f; --line: #2a3833;
     --felt: #5bb38f; --felt-soft: #1b3229; --on-felt: #0d1412;
     --red: #ec7a7f; --red-soft: #3a1d20; --gold: #e0b75a; --gold-soft: #33290f;
+    --card: #e9eeeb; --card-edge: #5d6b66;
     color-scheme: dark;
   }
 }
@@ -38,6 +41,7 @@
   --bg: #0d1412; --paper: #151f1c; --ink: #e5ece9; --muted: #96a59f; --line: #2a3833;
   --felt: #5bb38f; --felt-soft: #1b3229; --on-felt: #0d1412;
   --red: #ec7a7f; --red-soft: #3a1d20; --gold: #e0b75a; --gold-soft: #33290f;
+  --card: #e9eeeb; --card-edge: #5d6b66;
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
@@ -47,7 +51,7 @@ body {
   font-family: var(--font-body); font-size: 15px; line-height: 1.45;
   padding-block: 20px 48px; padding-inline: 16px;
 }
-.wrap { max-width: 720px; margin: 0 auto; display: grid; gap: 20px; }
+.wrap { max-width: 760px; margin: 0 auto; display: grid; gap: 20px; }
 h1, h2 { font-family: var(--font-display); font-weight: 400; margin: 0; text-wrap: balance; }
 h1 { font-size: 1.6rem; }
 h2 { font-size: 1.15rem; }
@@ -56,6 +60,8 @@ button { cursor: pointer; }
 :focus-visible { outline: 2px solid var(--felt); outline-offset: 2px; }
 .label { font-size: .72rem; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
 .num { font-variant-numeric: tabular-nums; }
+.sr { position: absolute; left: -9999px; }
+[hidden] { display: none !important; }
 
 /* Top bar */
 .top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
@@ -64,22 +70,29 @@ button { cursor: pointer; }
 .target input { width: 4.5em; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); }
 
 .btn { border: 1px solid var(--line); background: var(--paper); border-radius: 8px; padding: 8px 14px; font-weight: 600; }
-.btn:hover { border-color: var(--muted); }
+.btn:hover:not(:disabled) { border-color: var(--muted); }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
 .btn.primary { background: var(--felt); color: var(--on-felt); border-color: var(--felt); }
-.btn.primary:disabled { opacity: .45; cursor: not-allowed; }
 .btn.danger { color: var(--red); }
+
+/* Setup */
+.setup { display: flex; flex-wrap: wrap; gap: 10px 24px; align-items: center; }
+.setup .field { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.setup-note { font-size: .82rem; color: var(--muted); }
 
 /* Score sheet */
 .sheet { background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
-.sheet-head { display: grid; grid-template-columns: 1fr 1fr; }
+.sheet-head { display: grid; }
 .team { padding: 16px 18px 14px; display: grid; gap: 6px; min-width: 0; }
 .team + .team { border-left: 2px solid var(--ink); }
 .team input.name {
   border: 0; border-bottom: 1px dashed transparent; background: transparent; padding: 0; width: 100%;
-  font-weight: 600; font-size: .95rem; color: var(--muted);
+  font-weight: 600; font-size: .95rem; color: var(--muted); min-width: 0;
 }
 .team input.name:hover, .team input.name:focus { border-bottom-color: var(--line); outline: none; }
 .total { font-family: var(--font-display); font-size: clamp(2.6rem, 11vw, 3.6rem); line-height: 1; }
+.sheet.many .total { font-size: clamp(1.8rem, 7vw, 2.8rem); }
+.sheet.many .team { padding: 14px 12px 12px; }
 .bar { height: 6px; border-radius: 3px; background: var(--felt-soft); overflow: hidden; }
 .bar span { display: block; height: 100%; background: var(--felt); transition: width .3s ease; }
 .togo { font-size: .82rem; color: var(--muted); }
@@ -100,40 +113,60 @@ button { cursor: pointer; }
   border: 1px solid var(--line); background: var(--paper); border-radius: 999px; padding: 7px 14px;
   font-weight: 600; display: inline-flex; align-items: center; gap: 6px; min-height: 38px;
 }
-.chip:hover { border-color: var(--muted); }
+.chip:hover:not(:disabled) { border-color: var(--muted); }
 .chip[aria-pressed="true"] { background: var(--felt); color: var(--on-felt); border-color: var(--felt); }
 .chip .sym { font-size: 1.15rem; line-height: 1; }
 .chip .sym.red { color: var(--red); }
 .chip[aria-pressed="true"] .sym.red { color: inherit; }
 .chip:disabled { opacity: .4; cursor: not-allowed; }
 
-.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
 .col { display: grid; gap: 10px; align-content: start; min-width: 0; padding: 12px; border: 1px solid var(--line); border-radius: 8px; }
 .col h3 { margin: 0; font-size: .95rem; font-weight: 700; overflow-wrap: anywhere; }
 .col h3 .bidtag { font-size: .7rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--felt); margin-left: 6px; }
-.tricks { display: flex; align-items: center; gap: 8px; }
+.tricks { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .tricks input {
   width: 100%; max-width: 7em; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px;
   background: var(--paper); font-size: 1.15rem; font-variant-numeric: tabular-nums;
 }
 .tricks input:disabled { opacity: .6; }
+.remaining { font-size: .82rem; color: var(--muted); }
 .capot { display: flex; align-items: center; gap: 6px; font-size: .9rem; cursor: pointer; }
-.decl-btns { display: flex; flex-wrap: wrap; gap: 6px; }
+.capot small { color: var(--muted); }
+
+.decl-btns { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 6px; }
 .decl-btns button {
-  border: 1px dashed var(--line); background: transparent; border-radius: 6px; padding: 5px 8px; font-size: .82rem; font-weight: 600;
+  border: 1px dashed var(--line); background: transparent; border-radius: 8px; padding: 7px 8px 6px;
+  display: grid; gap: 5px; justify-items: start; text-align: left; font-size: .8rem; font-weight: 600; line-height: 1.2;
 }
-.decl-btns button:hover:not(:disabled) { border-style: solid; border-color: var(--felt); color: var(--felt); }
+.decl-btns button:hover:not(:disabled) { border-style: solid; border-color: var(--felt); }
 .decl-btns button:disabled { opacity: .35; cursor: not-allowed; }
 .decl-btns button small { font-weight: 500; color: var(--muted); }
 .decl-list { display: flex; flex-wrap: wrap; gap: 6px; min-height: 28px; }
 .tag {
-  display: inline-flex; align-items: center; gap: 4px; border-radius: 6px; padding: 3px 4px 3px 8px;
+  display: inline-flex; align-items: center; gap: 6px; border-radius: 6px; padding: 3px 4px 3px 6px;
   background: var(--felt-soft); font-size: .82rem; font-weight: 600;
 }
-.tag.belot { background: var(--red-soft); color: var(--red); }
+.tag.belot { background: var(--red-soft); }
 .tag button { border: 0; background: transparent; padding: 0 4px; font-size: 1rem; line-height: 1; color: inherit; opacity: .7; }
 .tag button:hover { opacity: 1; }
 .empty-decl { font-size: .82rem; color: var(--muted); }
+
+/* Playing-card icons */
+.cards { display: inline-flex; align-items: center; }
+.card {
+  display: inline-grid; grid-template-rows: auto auto; place-items: center; align-content: center;
+  width: 1.7em; height: 2.2em; border: 1px solid var(--card-edge); border-radius: 3px;
+  background: var(--card); color: #1b2421; font-size: .72rem; font-weight: 700; line-height: 1;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, .08); font-variant-numeric: tabular-nums;
+}
+.card + .card { margin-left: -.3em; }
+.card.ten { letter-spacing: -.08em; font-size: .64rem; }
+.card.red { color: #b3262e; }
+.card i { font-style: normal; font-size: .95em; }
+.cards.lg .card { font-size: .85rem; }
+.cards.lg .card.ten { font-size: .76rem; }
+.cards.lg .card + .card { margin-left: -.3em; }
 
 .preview {
   display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
@@ -151,12 +184,13 @@ button { cursor: pointer; }
 table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
 th, td { padding: 9px 8px; text-align: left; border-bottom: 1px solid var(--line); vertical-align: top; }
 th { font-size: .72rem; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
-td.pts, th.pts { text-align: right; width: 18%; }
+td.pts, th.pts { text-align: right; white-space: nowrap; }
+th.pts { max-width: 7em; overflow: hidden; text-overflow: ellipsis; }
 td.pts .run { display: block; font-size: .78rem; color: var(--muted); }
-td.pts.us, th.pts.us { border-right: 2px solid var(--ink); }
+td.pts.sep, th.pts.sep { border-left: 2px solid var(--ink); }
 .hand-contract { font-weight: 600; white-space: nowrap; }
 .hand-contract .red { color: var(--red); }
-.hand-meta { font-size: .8rem; color: var(--muted); }
+.hand-meta { font-size: .8rem; color: var(--muted); min-width: 12em; }
 td.del { width: 1%; }
 td.del button { border: 0; background: transparent; color: var(--muted); padding: 2px 6px; font-size: 1.1rem; }
 td.del button:hover { color: var(--red); }
@@ -164,18 +198,21 @@ td.del button:hover { color: var(--red); }
 
 details.rules { background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 18px; }
 details.rules summary { cursor: pointer; font-family: var(--font-display); font-size: 1.05rem; }
-.rules-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-top: 14px; font-size: .9rem; }
-.rules-grid h4 { margin: 0 0 6px; font-size: .78rem; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
-.rules-grid dl { margin: 0; display: grid; grid-template-columns: 1fr auto; gap: 3px 12px; }
+.rules-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 18px; margin-top: 14px; font-size: .9rem; }
+.rules-grid h4 { margin: 0 0 8px; font-size: .78rem; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.rules-grid dl { margin: 0; display: grid; grid-template-columns: auto 1fr auto; gap: 8px 10px; align-items: center; }
+.rules-grid dt { display: contents; }
 .rules-grid dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
 .rules-grid p { margin: 0 0 6px; }
+.rules-wide { grid-column: 1 / -1; }
 
 .confirm { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: .9rem; }
 
 @media (max-width: 560px) {
-  .cols { grid-template-columns: 1fr; }
   .team { padding: 14px 12px; }
   .panel { padding: 14px; }
+  .sheet.many .team { padding: 12px 8px; }
+  .sheet.many .togo { font-size: .74rem; }
 }
 @media (prefers-reduced-motion: reduce) { .bar span { transition: none; } }
 </style>
@@ -186,25 +223,24 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
     <h1>Belot Scorekeeper</h1>
     <div class="top-actions">
       <label class="target" for="target">Play to <input id="target" type="number" min="1" step="1" class="num"></label>
-      <span id="newGameBox"><button class="btn danger" id="newGame" type="button">New game</button></span>
+      <span id="newGameBox"></span>
     </div>
   </header>
 
-  <section class="sheet" aria-label="Score">
-    <div class="sheet-head">
-      <div class="team" id="team0">
-        <input class="name" id="name0" aria-label="Team 1 name" maxlength="24">
-        <div class="total num" id="total0">0</div>
-        <div class="bar"><span id="bar0" style="width:0"></span></div>
-        <div class="togo num" id="togo0"></div>
-      </div>
-      <div class="team" id="team1">
-        <input class="name" id="name1" aria-label="Team 2 name" maxlength="24">
-        <div class="total num" id="total1">0</div>
-        <div class="bar"><span id="bar1" style="width:0"></span></div>
-        <div class="togo num" id="togo1"></div>
-      </div>
+  <section class="setup" aria-label="Game setup">
+    <div class="field">
+      <span class="label">Play as</span>
+      <div class="seg" id="modeSeg"></div>
     </div>
+    <div class="field" id="playersField">
+      <span class="label">Players</span>
+      <div class="seg" id="playersSeg"></div>
+    </div>
+    <span class="setup-note" id="setupNote"></span>
+  </section>
+
+  <section class="sheet" id="sheet" aria-label="Score">
+    <div class="sheet-head" id="sheetHead"></div>
     <div class="hangnote" id="hangNote" hidden></div>
     <div class="banner" id="banner" hidden></div>
   </section>
@@ -245,57 +281,15 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
     </div>
     <div class="ledger">
       <table>
-        <thead><tr><th>#</th><th>Contract</th><th class="pts us" id="th0">Us</th><th class="pts" id="th1">Them</th><th class="del"><span class="label" style="position:absolute;left:-9999px">Delete</span></th></tr></thead>
+        <thead><tr id="headRow"></tr></thead>
         <tbody id="rows"></tbody>
       </table>
     </div>
   </section>
 
-  <details class="rules">
+  <details class="rules" id="rules">
     <summary>Scoring reference</summary>
-    <div class="rules-grid">
-      <div>
-        <h4>In a row (sequences)</h4>
-        <dl>
-          <dt>Tierce, 3 in a row</dt><dd>20</dd>
-          <dt>Quarte, 4 in a row</dt><dd>50</dd>
-          <dt>Quint, 5+ in a row</dt><dd>100</dd>
-        </dl>
-      </div>
-      <div>
-        <h4>Four of a kind (carré)</h4>
-        <dl>
-          <dt>Four jacks</dt><dd>200</dd>
-          <dt>Four nines</dt><dd>150</dd>
-          <dt>Four A, K, Q or 10</dt><dd>100</dd>
-        </dl>
-      </div>
-      <div>
-        <h4>Suit bonus and capot</h4>
-        <dl>
-          <dt>Belot, K + Q of trumps</dt><dd>20</dd>
-          <dt>Capot, all 8 tricks</dt><dd>90</dd>
-          <dt>Last trick</dt><dd>10</dd>
-        </dl>
-      </div>
-      <div>
-        <h4>Points in the cards</h4>
-        <dl>
-          <dt>Suit (♣ ♦ ♥ ♠)</dt><dd>162</dd>
-          <dt>All trumps</dt><dd>258</dd>
-          <dt>No trumps (counted ×2)</dt><dd>130</dd>
-        </dl>
-      </div>
-      <div style="grid-column: 1 / -1">
-        <h4>How a hand is scored</h4>
-        <p>Raw points are divided by 10 and rounded. In a suit game 7 and up rounds up (86 → 8, 87 → 9). In all trumps and no trumps 5 and up rounds up.</p>
-        <p>No declarations or belot count in no trumps. In all trumps every K + Q pair counts as a belot.</p>
-        <p><b>Inside:</b> if the team that took the contract scores less than the other team, the other team gets all points from the hand.</p>
-        <p><b>Hanging:</b> on a tie the defenders keep their points. The bidders' points carry over to whoever wins the next hand.</p>
-        <p><b>Double / redouble:</b> the winning team takes every point of the hand, multiplied by 2 or 4.</p>
-        <p>Belot is never lost: it always stays with the team that called it. Enter only the declarations that count after comparing sequences at the table.</p>
-      </div>
-    </div>
+    <div class="rules-grid" id="rulesGrid"></div>
   </details>
 </div>
 
@@ -304,107 +298,134 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
   "use strict";
 
   const CONTRACTS = {
-    c:  { label: "Clubs",      sym: "♣",  kind: "suit", red: false },
-    d:  { label: "Diamonds",   sym: "♦",  kind: "suit", red: true },
-    h:  { label: "Hearts",     sym: "♥",  kind: "suit", red: true },
-    s:  { label: "Spades",     sym: "♠",  kind: "suit", red: false },
-    nt: { label: "No trumps",  sym: "A",  kind: "nt",   red: false },
-    at: { label: "All trumps", sym: "J",  kind: "at",   red: false }
+    c:  { label: "Clubs",      sym: "♣", kind: "suit", red: false },
+    d:  { label: "Diamonds",   sym: "♦", kind: "suit", red: true },
+    h:  { label: "Hearts",     sym: "♥", kind: "suit", red: true },
+    s:  { label: "Spades",     sym: "♠", kind: "suit", red: false },
+    nt: { label: "No trumps",  sym: "",  kind: "nt",   red: false },
+    at: { label: "All trumps", sym: "",  kind: "at",   red: false }
   };
   const CARD_TOTAL = { suit: 162, nt: 130, at: 258 };
+  const SUITS = ["♠", "♥", "♦", "♣"];
+  // `cards(trump)` lists what the combination is made of, as [rank, suit] pairs.
   const DECL = {
-    t:  { label: "Tierce",     v: 20 },
-    q:  { label: "Quarte",     v: 50 },
-    f:  { label: "Quint",      v: 100 },
-    cj: { label: "Four jacks", v: 200 },
-    c9: { label: "Four nines", v: 150 },
-    c4: { label: "Carré",      v: 100 },
-    b:  { label: "Belot",      v: 20 }
+    t:  { label: "Tierce",     long: "Tierce, 3 in a row",  v: 20,  cards: (s) => ["7", "8", "9"].map((r) => [r, s]) },
+    q:  { label: "Quarte",     long: "Quarte, 4 in a row",  v: 50,  cards: (s) => ["7", "8", "9", "10"].map((r) => [r, s]) },
+    f:  { label: "Quint",      long: "Quint, 5+ in a row",  v: 100, cards: (s) => ["7", "8", "9", "10", "J"].map((r) => [r, s]) },
+    cj: { label: "Four jacks", long: "Four jacks",          v: 200, cards: () => SUITS.map((s) => ["J", s]) },
+    c9: { label: "Four nines", long: "Four nines",          v: 150, cards: () => SUITS.map((s) => ["9", s]) },
+    c4: { label: "Four A/K/Q/10", long: "Four aces, kings, queens or tens", v: 100, cards: () => SUITS.map((s) => ["A", s]) },
+    b:  { label: "Belot",      long: "Belot, K + Q of trumps", v: 20, cards: (s) => [["K", s], ["Q", s]] }
   };
   const CAPOT_BONUS = 90;
   const STORE_KEY = "belot-scorekeeper-v1";
+  const DEFAULT_TEAMS = ["Us", "Them"];
+  const DEFAULT_PLAYERS = ["Player 1", "Player 2", "Player 3", "Player 4"];
 
   const $ = (id) => document.getElementById(id);
+  const range = (n) => Array.from({ length: n }, (_, i) => i);
 
   // ---------- scoring ----------
 
   // Raw points → game points. Suits round 7+ up; all trumps / no trumps round 5+ up.
   function toGame(raw, kind) {
     const threshold = kind === "suit" ? 6 : 4;
+    raw = Math.round(raw);
     return Math.floor(raw / 10) + (raw % 10 > threshold ? 1 : 0);
   }
 
+  // Works for any number of sides (2 teams, or 2–4 individual players).
+  // The bidder must score more than every opponent. If inside, the bidder's points are
+  // shared among the opponents; with two sides that means the defenders take everything.
   function scoreHand(h) {
     const kind = CONTRACTS[h.contract].kind;
+    const n = h.tricks.length;
+    const sides = range(n);
     const ntFactor = kind === "nt" ? 2 : 1;
-    const teams = [0, 1];
-    const capot = teams.map((t) => (h.capot === t ? CAPOT_BONUS : 0));
-    const belot = teams.map((t) => kind === "nt" ? 0 : h.decl[t].filter((x) => x === "b").length * DECL.b.v);
-    const decl = teams.map((t) => kind === "nt" ? 0 : h.decl[t].filter((x) => x !== "b").reduce((s, x) => s + DECL[x].v, 0));
-    const pool = teams.map((t) => (h.tricks[t] + capot[t]) * ntFactor + decl[t]);
-    const raw = teams.map((t) => pool[t] + belot[t]);
+    const capot = sides.map((t) => (h.capot === t ? CAPOT_BONUS : 0));
+    const belot = sides.map((t) => kind === "nt" ? 0 : h.decl[t].filter((x) => x === "b").length * DECL.b.v);
+    const decl = sides.map((t) => kind === "nt" ? 0 : h.decl[t].filter((x) => x !== "b").reduce((s, x) => s + DECL[x].v, 0));
+    const pool = sides.map((t) => (h.tricks[t] + capot[t]) * ntFactor + decl[t]);
+    const raw = sides.map((t) => pool[t] + belot[t]);
 
-    const b = h.bidder, d = 1 - b;
-    const award = [0, 0];
+    const b = h.bidder;
+    const opps = sides.filter((t) => t !== b);
+    const best = Math.max(...opps.map((t) => raw[t]));
+    const sum = pool.reduce((s, x) => s + x, 0);
+    const award = sides.map(() => 0);
     let hangRaw = 0, status;
-    if (raw[b] > raw[d]) {
+    if (raw[b] > best) {
       status = "made";
-      if (h.mult > 1) award[b] = pool[0] + pool[1];
-      else { award[0] = pool[0]; award[1] = pool[1]; }
-    } else if (raw[b] < raw[d]) {
+      if (h.mult > 1) award[b] = sum;
+      else sides.forEach((t) => { award[t] = pool[t]; });
+    } else if (raw[b] < best) {
       status = "inside";
-      award[d] = pool[0] + pool[1];
+      opps.forEach((t) => { award[t] = pool[t] + pool[b] / opps.length; });
     } else {
       status = "hanging";
-      award[d] = pool[d];
+      opps.forEach((t) => { award[t] = pool[t]; });
       hangRaw = pool[b];
     }
-    const pts = teams.map((t) => toGame(award[t] + belot[t], kind) * h.mult);
+    const pts = sides.map((t) => toGame(award[t] + belot[t], kind) * h.mult);
     return { pts, raw, status, hang: toGame(hangRaw, kind) * h.mult };
   }
 
+  function uniqueMax(arr) {
+    const m = Math.max(...arr);
+    return arr.filter((x) => x === m).length === 1 ? arr.indexOf(m) : null;
+  }
+
   // Runs every hand in order: running totals, hanging points, and the winner.
-  function computeGame(hands, target) {
-    let totals = [0, 0], carry = 0, winner = null, winnerAt = -1;
-    const rows = hands.map((h, i) => {
+  function computeGame(hands, target, n) {
+    let totals = range(n).map(() => 0), carry = 0, winner = null;
+    const rows = hands.map((h) => {
       const r = scoreHand(h);
       const pts = r.pts.slice();
       let carryIn = 0, carryTo = null;
-      if (carry > 0 && pts[0] !== pts[1]) {
-        carryTo = pts[0] > pts[1] ? 0 : 1;
-        pts[carryTo] += carry;
-        carryIn = carry;
-        carry = 0;
+      if (carry > 0) {
+        const top = uniqueMax(pts);
+        if (top !== null) { carryTo = top; pts[top] += carry; carryIn = carry; carry = 0; }
       }
       carry += r.hang;
-      totals = [totals[0] + pts[0], totals[1] + pts[1]];
-      if (winner === null && Math.max(totals[0], totals[1]) >= target && totals[0] !== totals[1]) {
-        winner = totals[0] > totals[1] ? 0 : 1;
-        winnerAt = i;
-      }
+      totals = totals.map((x, t) => x + pts[t]);
+      if (winner === null && Math.max(...totals) >= target) winner = uniqueMax(totals);
       return { hand: h, result: r, pts, carryIn, carryTo, totals: totals.slice() };
     });
-    return { rows, totals, carry, winner, winnerAt };
+    return { rows, totals, carry, winner };
   }
 
   // ---------- state ----------
 
+  let state = { mode: "teams", players: 3, teamNames: DEFAULT_TEAMS.slice(), playerNames: DEFAULT_PLAYERS.slice(), target: 151, hands: [] };
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORE_KEY) || "null");
+    if (saved && Array.isArray(saved.hands)) {
+      if (Array.isArray(saved.names) && !saved.teamNames) saved.teamNames = saved.names; // first version stored only team names
+      delete saved.names;
+      state = Object.assign(state, saved);
+    }
+  } catch (e) { /* storage unavailable: start fresh */ }
+
+  function sideCount() { return state.mode === "teams" ? 2 : state.players; }
+  function names() { return state.mode === "teams" ? state.teamNames : state.playerNames; }
+  function sideName(t) {
+    const fallback = state.mode === "teams" ? "Team " + (t + 1) : "Player " + (t + 1);
+    return (names()[t] || "").trim() || fallback;
+  }
+
   function freshDraft(prev) {
+    const n = sideCount();
     return {
-      bidder: prev ? prev.bidder : 0,
+      bidder: prev && prev.bidder < n ? prev.bidder : 0,
       contract: prev ? prev.contract : "h",
       mult: 1,
-      tricks: ["", ""],
+      tricks: range(n).map(() => ""),
+      manual: range(n).map(() => false),
       capot: null,
-      decl: [[], []]
+      decl: range(n).map(() => [])
     };
   }
 
-  let state = { names: ["Us", "Them"], target: 151, hands: [] };
-  try {
-    const saved = JSON.parse(localStorage.getItem(STORE_KEY) || "null");
-    if (saved && Array.isArray(saved.hands)) state = Object.assign(state, saved);
-  } catch (e) { /* storage unavailable: start fresh */ }
   let draft = freshDraft();
   let confirmingNewGame = false;
 
@@ -414,22 +435,21 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
 
   function draftKind() { return CONTRACTS[draft.contract].kind; }
   function draftTotal() { return CARD_TOTAL[draftKind()]; }
+  function trumpSuit(contract) { const c = CONTRACTS[contract]; return c.kind === "suit" ? c.sym : "♥"; }
 
   // Returns a hand object when the draft is complete, otherwise an error message.
   function draftToHand() {
     const total = draftTotal();
+    const n = sideCount();
     let tricks;
     if (draft.capot !== null) {
-      tricks = [0, 0];
-      tricks[draft.capot] = total;
+      tricks = range(n).map((t) => (t === draft.capot ? total : 0));
     } else {
-      const a = draft.tricks[0], b = draft.tricks[1];
-      if (a === "" && b === "") return { error: "Enter the trick points for either team." };
-      const va = Number(a), vb = Number(b);
-      if (!Number.isInteger(va) || !Number.isInteger(vb) || va < 0 || vb < 0)
-        return { error: "Trick points must be whole numbers." };
-      if (va + vb !== total) return { error: "Trick points must add up to " + total + "." };
-      tricks = [va, vb];
+      if (draft.tricks.every((x) => x === "")) return { error: "Enter the trick points." };
+      tricks = draft.tricks.map((x) => (x === "" ? 0 : Number(x)));
+      if (tricks.some((x) => !Number.isInteger(x) || x < 0)) return { error: "Trick points must be whole numbers." };
+      const sum = tricks.reduce((s, x) => s + x, 0);
+      if (sum !== total) return { error: "Trick points must add up to " + total + " (now " + sum + ")." };
     }
     const kind = draftKind();
     return {
@@ -439,12 +459,26 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
         mult: draft.mult,
         tricks,
         capot: draft.capot,
-        decl: kind === "nt" ? [[], []] : [draft.decl[0].slice(), draft.decl[1].slice()]
+        decl: kind === "nt" ? range(n).map(() => []) : draft.decl.map((l) => l.slice())
       }
     };
   }
 
-  // ---------- rendering ----------
+  // Fill in the last trick box automatically once every other side has a number.
+  function autofillTricks(changed) {
+    const n = sideCount();
+    const total = draftTotal();
+    const open = range(n).filter((t) => !draft.manual[t]);
+    if (open.length === 1) {
+      const last = open[0];
+      const sum = range(n).filter((t) => t !== last).reduce((s, t) => s + (Number(draft.tricks[t]) || 0), 0);
+      draft.tricks[last] = String(Math.max(0, total - sum));
+    } else {
+      open.forEach((t) => { if (t !== changed) draft.tricks[t] = ""; });
+    }
+  }
+
+  // ---------- rendering helpers ----------
 
   function el(tag, attrs, children) {
     const n = document.createElement(tag);
@@ -458,6 +492,12 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
     return n;
   }
 
+  function cardIcons(declKey, trump, large) {
+    const list = DECL[declKey].cards(trump);
+    return el("span", { class: "cards" + (large ? " lg" : ""), "aria-hidden": "true" }, list.map(([rank, suit]) =>
+      el("span", { class: "card" + (suit === "♥" || suit === "♦" ? " red" : "") + (rank === "10" ? " ten" : "") }, [rank, el("i", { text: suit })])));
+  }
+
   function contractLabel(h) {
     const c = CONTRACTS[h.contract];
     const frag = document.createDocumentFragment();
@@ -468,15 +508,92 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
     return frag;
   }
 
+  // ---------- rendering ----------
+
+  function renderSetup() {
+    const locked = state.hands.length > 0;
+    const choose = (fn) => () => { fn(); draft = freshDraft(draft); save(); render(); };
+    $("modeSeg").replaceChildren(...[["teams", "2 teams"], ["solo", "Individually"]].map(([m, label]) =>
+      el("button", {
+        type: "button", class: "chip", "aria-pressed": String(state.mode === m), disabled: locked,
+        onclick: choose(() => { state.mode = m; })
+      }, [label])));
+    $("playersField").hidden = state.mode !== "solo";
+    $("playersSeg").replaceChildren(...[2, 3, 4].map((p) =>
+      el("button", {
+        type: "button", class: "chip", "aria-pressed": String(state.players === p), disabled: locked,
+        onclick: choose(() => { state.players = p; })
+      }, [String(p)])));
+    $("setupNote").textContent = locked ? "Start a new game to change this." : "";
+  }
+
+  let sheetKey = "";
+  function buildSheet() {
+    const n = sideCount();
+    const key = state.mode + n;
+    if (key === sheetKey) return;
+    sheetKey = key;
+    $("sheet").classList.toggle("many", n > 2);
+    const head = $("sheetHead");
+    head.style.gridTemplateColumns = "repeat(" + n + ", minmax(0, 1fr))";
+    head.replaceChildren(...range(n).map((t) => {
+      const input = el("input", { class: "name", id: "name" + t, maxlength: "24", "aria-label": (state.mode === "teams" ? "Team " : "Player ") + (t + 1) + " name" });
+      input.addEventListener("input", () => { names()[t] = input.value; save(); render(); });
+      return el("div", { class: "team", id: "team" + t }, [
+        input,
+        el("div", { class: "total num", id: "total" + t, text: "0" }),
+        el("div", { class: "bar" }, [el("span", { id: "bar" + t, style: "width:0" })]),
+        el("div", { class: "togo num", id: "togo" + t })
+      ]);
+    }));
+  }
+
+  function renderSheet(game) {
+    buildSheet();
+    const target = state.target;
+    const n = sideCount();
+    const lead = uniqueMax(game.totals);
+    range(n).forEach((t) => {
+      const total = game.totals[t];
+      $("total" + t).textContent = total;
+      $("bar" + t).style.width = Math.max(0, Math.min(100, (total / target) * 100)) + "%";
+      $("togo" + t).textContent = total >= target ? "Reached " + target : (target - total) + " to go";
+      $("team" + t).classList.toggle("leader", lead === t && total > 0);
+      const nameInput = $("name" + t);
+      if (document.activeElement !== nameInput) nameInput.value = names()[t];
+    });
+
+    const hang = $("hangNote");
+    hang.hidden = !(game.carry > 0 && game.winner === null);
+    hang.textContent = game.carry + " points are hanging and go to the winner of the next hand.";
+
+    const banner = $("banner");
+    const max = Math.max(...game.totals);
+    if (game.winner !== null) {
+      banner.hidden = false;
+      const others = game.totals.filter((_, t) => t !== game.winner).join(", ");
+      const verb = state.mode === "teams" ? " win " : " wins ";
+      banner.replaceChildren(
+        el("strong", { text: sideName(game.winner) + verb + game.totals[game.winner] + " to " + others }),
+        el("button", { class: "btn primary", type: "button", text: "Play again", onclick: startNewGame })
+      );
+    } else if (max >= target) {
+      banner.hidden = false;
+      banner.replaceChildren(el("span", { text: "Tied at the top above " + target + ". Play another hand to decide it." }));
+    } else {
+      banner.hidden = true;
+    }
+  }
+
   function renderForm(game) {
     const over = game.winner !== null;
+    const n = sideCount();
     $("handTitle").textContent = "Hand " + (state.hands.length + 1);
 
-    const bidSeg = $("bidderSeg");
-    bidSeg.replaceChildren(...[0, 1].map((t) => el("button", {
+    $("bidderSeg").replaceChildren(...range(n).map((t) => el("button", {
       type: "button", class: "chip", "aria-pressed": String(draft.bidder === t),
       onclick: () => { draft.bidder = t; render(); }
-    }, [state.names[t] || "Team " + (t + 1)])));
+    }, [sideName(t)])));
 
     $("contractSeg").replaceChildren(...Object.keys(CONTRACTS).map((key) => {
       const c = CONTRACTS[key];
@@ -488,7 +605,7 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
         onclick: () => {
           const before = draftTotal();
           draft.contract = key;
-          if (draftTotal() !== before) draft.tricks = ["", ""];
+          if (draftTotal() !== before) { draft.tricks = range(n).map(() => ""); draft.manual = range(n).map(() => false); }
           trimBelots();
           render();
         }
@@ -503,11 +620,12 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
 
     const kind = draftKind();
     const total = draftTotal();
+    const trump = trumpSuit(draft.contract);
     const belotLimit = kind === "suit" ? 1 : 4;
-    const belotsUsed = draft.decl[0].filter((x) => x === "b").length + draft.decl[1].filter((x) => x === "b").length;
+    const belotsUsed = draft.decl.reduce((s, l) => s + l.filter((x) => x === "b").length, 0);
 
-    $("cols").replaceChildren(...[0, 1].map((t) => {
-      const name = state.names[t] || "Team " + (t + 1);
+    $("cols").replaceChildren(...range(n).map((t) => {
+      const name = sideName(t);
       const capotOn = draft.capot === t;
       const trickVal = draft.capot !== null ? (capotOn ? total : 0) : draft.tricks[t];
       const input = el("input", {
@@ -516,21 +634,20 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
         "aria-label": name + " trick points"
       });
       input.addEventListener("input", () => {
-        const v = input.value;
-        draft.tricks[t] = v;
-        const n = Number(v);
-        draft.tricks[1 - t] = v === "" || !Number.isFinite(n) ? "" : String(Math.max(0, total - n));
-        const other = $("tricks" + (1 - t));
-        if (other) other.value = draft.tricks[1 - t];
-        renderPreview(computeGame(state.hands, state.target));
+        draft.tricks[t] = input.value;
+        draft.manual[t] = input.value !== "";
+        if (n === 2) draft.manual[1 - t] = false;
+        autofillTricks(t);
+        range(n).forEach((o) => { if (o !== t) { const other = $("tricks" + o); if (other) other.value = draft.tricks[o]; } });
+        renderPreview(computeGame(state.hands, state.target, n));
       });
 
-      const capot = el("label", { class: "capot" }, [
+      const capot = el("label", { class: "capot", title: "Capot: one side takes all 8 tricks and gets 90 extra points" }, [
         el("input", {
           type: "checkbox", id: "capot" + t, checked: capotOn,
           onchange: (e) => { draft.capot = e.target.checked ? t : null; render(); }
         }),
-        "Capot (all tricks)"
+        "Capot ", el("small", { text: "took all 8 tricks, +90" })
       ]);
 
       const declBtns = el("div", { class: "decl-btns" }, Object.keys(DECL).map((k) => {
@@ -538,13 +655,15 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
         const disabled = kind === "nt" || (isBelot && belotsUsed >= belotLimit);
         return el("button", {
           type: "button", disabled,
-          title: kind === "nt" ? "No declarations in no trumps" : "Add " + DECL[k].label,
+          title: kind === "nt" ? "No declarations in no trumps" : "Add " + DECL[k].long,
+          "aria-label": "Add " + DECL[k].long + ", " + DECL[k].v + " points",
           onclick: () => { draft.decl[t].push(k); render(); }
-        }, [DECL[k].label + " ", el("small", { text: "+" + DECL[k].v })]);
+        }, [cardIcons(k, trump), el("span", {}, [DECL[k].label + " ", el("small", { text: "+" + DECL[k].v })])]);
       }));
 
       const list = draft.decl[t].length && kind !== "nt"
         ? draft.decl[t].map((k, i) => el("span", { class: "tag" + (k === "b" ? " belot" : "") }, [
+            cardIcons(k, trump),
             DECL[k].label + " " + DECL[k].v,
             el("button", {
               type: "button", "aria-label": "Remove " + DECL[k].label, text: "×",
@@ -553,15 +672,21 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
           ]))
         : [el("span", { class: "empty-decl", text: kind === "nt" ? "No declarations in no trumps" : "No declarations" })];
 
+      const trickRow = [input];
+      if (n > 2 && draft.capot === null) {
+        const sum = draft.tricks.reduce((s, x) => s + (Number(x) || 0), 0);
+        if (t === n - 1) trickRow.push(el("span", { class: "remaining", text: (total - sum) + " left of " + total }));
+      }
+
       return el("div", { class: "col" }, [
         el("h3", {}, [name, draft.bidder === t ? el("span", { class: "bidtag", text: "bid" }) : ""]),
-        el("div", { class: "field" }, [el("span", { class: "label", text: "Trick points" }), el("div", { class: "tricks" }, [input])]),
+        el("div", { class: "field" }, [el("span", { class: "label", text: "Trick points" }), el("div", { class: "tricks" }, trickRow)]),
         capot,
         el("div", { class: "field" }, [el("span", { class: "label", text: "Declarations" }), declBtns, el("div", { class: "decl-list" }, list)])
       ]);
     }));
 
-    [...$("handForm").querySelectorAll("button, input")].forEach((n) => { if (over) n.disabled = true; });
+    [...$("handForm").querySelectorAll("button, input")].forEach((node) => { if (over) node.disabled = true; });
     renderPreview(game);
   }
 
@@ -581,73 +706,44 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
     }
     btn.disabled = false;
     const r = scoreHand(res.hand);
-    const n = state.names;
     const statusText = { made: "Made", inside: "Inside", hanging: "Hanging" }[r.status];
-    box.replaceChildren(
-      el("span", { class: "status " + r.status, text: statusText }),
-      (n[0] || "Team 1") + " ", el("b", { text: String(r.pts[0]) }),
-      " · " + (n[1] || "Team 2") + " ", el("b", { text: String(r.pts[1]) }),
-      r.hang ? " · " + r.hang + " hanging" : "",
-      el("span", { class: "hand-meta", text: "  (raw " + r.raw[0] + " / " + r.raw[1] + ")" })
-    );
-  }
-
-  function renderSheet(game) {
-    const target = state.target;
-    [0, 1].forEach((t) => {
-      const total = game.totals[t];
-      $("total" + t).textContent = total;
-      $("bar" + t).style.width = Math.min(100, (total / target) * 100) + "%";
-      $("togo" + t).textContent = total >= target ? "Reached " + target : (target - total) + " to go";
-      $("team" + t).classList.toggle("leader", total > game.totals[1 - t]);
-      const nameInput = $("name" + t);
-      if (document.activeElement !== nameInput) nameInput.value = state.names[t];
-      $("th" + t).textContent = state.names[t] || "Team " + (t + 1);
+    const parts = [el("span", { class: "status " + r.status, text: statusText })];
+    r.pts.forEach((p, t) => {
+      if (t) parts.push(" · ");
+      parts.push(sideName(t) + " ", el("b", { text: String(p) }));
     });
-
-    const hang = $("hangNote");
-    hang.hidden = !(game.carry > 0 && game.winner === null);
-    hang.textContent = game.carry + " points are hanging and go to the winner of the next hand.";
-
-    const banner = $("banner");
-    if (game.winner !== null) {
-      banner.hidden = false;
-      banner.replaceChildren(
-        el("strong", { text: (state.names[game.winner] || "Team " + (game.winner + 1)) + " win " + game.totals[game.winner] + " to " + game.totals[1 - game.winner] }),
-        el("button", { class: "btn primary", type: "button", text: "Play again", onclick: startNewGame })
-      );
-    } else if (game.totals[0] >= target && game.totals[0] === game.totals[1]) {
-      banner.hidden = false;
-      banner.replaceChildren(el("span", { text: "Tied above " + target + ". Play another hand to decide it." }));
-    } else {
-      banner.hidden = true;
-    }
+    if (r.hang) parts.push(" · " + r.hang + " hanging");
+    parts.push(el("span", { class: "hand-meta", text: "  (raw " + r.raw.join(" / ") + ")" }));
+    box.replaceChildren(...parts);
   }
 
   function renderRows(game) {
+    const n = sideCount();
+    $("headRow").replaceChildren(
+      el("th", { text: "#" }),
+      el("th", { text: "Contract" }),
+      ...range(n).map((t) => el("th", { class: "pts" + (t ? " sep" : ""), text: sideName(t), title: sideName(t) })),
+      el("th", { class: "del" }, [el("span", { class: "sr", text: "Delete" })])
+    );
     const body = $("rows");
     if (!game.rows.length) {
-      body.replaceChildren(el("tr", {}, [el("td", { colspan: "5", class: "empty", text: "No hands yet. Fill in the first hand above and press Add hand." })]));
+      body.replaceChildren(el("tr", {}, [el("td", { colspan: String(n + 3), class: "empty", text: "No hands yet. Fill in the first hand above and press Add hand." })]));
       return;
     }
     body.replaceChildren(...game.rows.map((row, i) => {
       const h = row.hand;
       const r = row.result;
-      const meta = [];
-      meta.push({ made: "made", inside: "inside", hanging: "hanging" }[r.status]);
-      meta.push("bid by " + (state.names[h.bidder] || "Team " + (h.bidder + 1)));
-      if (h.capot !== null) meta.push("capot");
-      const declCount = h.decl[0].length + h.decl[1].length;
-      if (declCount) {
-        meta.push([0, 1].map((t) => h.decl[t].map((k) => DECL[k].label).join(", ")).filter(Boolean).join(" / "));
-      }
-      if (row.carryIn) meta.push("+" + row.carryIn + " hanging to " + (state.names[row.carryTo] || "Team " + (row.carryTo + 1)));
+      const meta = [r.status, "bid by " + sideName(h.bidder)];
+      if (h.capot !== null) meta.push("capot by " + sideName(h.capot));
+      h.decl.forEach((list, t) => {
+        if (list.length) meta.push(sideName(t) + ": " + list.map((k) => DECL[k].label).join(", "));
+      });
+      if (row.carryIn) meta.push("+" + row.carryIn + " hanging to " + sideName(row.carryTo));
       if (r.hang) meta.push(r.hang + " left hanging");
       return el("tr", {}, [
         el("td", { class: "num", text: String(i + 1) }),
         el("td", {}, [el("div", { class: "hand-contract" }, [contractLabel(h)]), el("div", { class: "hand-meta", text: meta.join(" · ") })]),
-        el("td", { class: "pts us num" }, [String(row.pts[0]), el("span", { class: "run", text: String(row.totals[0]) })]),
-        el("td", { class: "pts num" }, [String(row.pts[1]), el("span", { class: "run", text: String(row.totals[1]) })]),
+        ...range(n).map((t) => el("td", { class: "pts num" + (t ? " sep" : "") }, [String(row.pts[t]), el("span", { class: "run", text: String(row.totals[t]) })])),
         el("td", { class: "del" }, [el("button", {
           type: "button", "aria-label": "Delete hand " + (i + 1), text: "×",
           onclick: () => { state.hands.splice(i, 1); save(); render(); }
@@ -675,9 +771,33 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
     $("undo").disabled = !state.hands.length;
   }
 
+  function renderRules() {
+    const row = (key) => [el("dt", {}, [cardIcons(key, "♥", true), el("span", { text: DECL[key].long })]), el("dd", { text: String(DECL[key].v) })];
+    const plain = (label, v) => [el("dt", {}, [el("span"), el("span", { text: label })]), el("dd", { text: v })];
+    const block = (title, kids) => el("div", {}, [el("h4", { text: title }), el("dl", {}, kids.flat())]);
+    const p = (b, text) => el("p", {}, b ? [el("b", { text: b + " " }), text] : [text]);
+    $("rulesGrid").replaceChildren(
+      block("In a row (same suit)", [row("t"), row("q"), row("f")]),
+      block("Four of a kind (carré)", [row("cj"), row("c9"), row("c4")]),
+      block("Suit bonus and capot", [row("b"), plain("Capot, one side takes all 8 tricks", "90"), plain("Last trick", "10")]),
+      block("Points in the cards", [plain("Suit (♣ ♦ ♥ ♠)", "162"), plain("All trumps", "258"), plain("No trumps, counted ×2", "130")]),
+      el("div", { class: "rules-wide" }, [
+        el("h4", { text: "How a hand is scored" }),
+        p("", "Raw points are divided by 10 and rounded. In a suit game 7 and up rounds up (86 → 8, 87 → 9). In all trumps and no trumps 5 and up rounds up."),
+        p("", "Sequences and belot are shown here in hearts; on the form they use the trump suit. Sequences count in any suit. No declarations or belot count in no trumps. In all trumps every K + Q pair counts as a belot."),
+        p("Capot:", "when one side takes every trick (valat), it scores 90 extra raw points, which is 9 game points."),
+        p("Inside:", "if the side that took the contract scores less than an opponent, it loses its points. With two teams the defenders get everything. With individual players the bidder's points are shared equally among the other players."),
+        p("Hanging:", "on a tie, the opponents keep their points. The bidder's points carry over to whoever scores most in the next hand."),
+        p("Double / redouble:", "if the contract is made the bidder takes every point of the hand. Everything is multiplied by 2 or 4."),
+        p("Belot is never lost:", "it always stays with the side that called it. Enter only the declarations that count after comparing sequences at the table.")
+      ])
+    );
+  }
+
   function render() {
-    const game = computeGame(state.hands, state.target);
+    const game = computeGame(state.hands, state.target, sideCount());
     renderTop();
+    renderSetup();
     renderSheet(game);
     renderForm(game);
     renderRows(game);
@@ -705,7 +825,7 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
     e.preventDefault();
     const res = draftToHand();
     if (res.error) return;
-    if (computeGame(state.hands, state.target).winner !== null) return;
+    if (computeGame(state.hands, state.target, sideCount()).winner !== null) return;
     state.hands.push(res.hand);
     draft = freshDraft(draft);
     save();
@@ -721,14 +841,7 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
     render();
   });
 
-  [0, 1].forEach((t) => {
-    $("name" + t).addEventListener("input", (e) => {
-      state.names[t] = e.target.value;
-      save();
-      render();
-    });
-  });
-
+  renderRules();
   render();
 })();
 </script>
