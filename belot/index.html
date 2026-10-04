@@ -199,6 +199,7 @@ th { font-size: .72rem; font-weight: 600; letter-spacing: .08em; text-transform:
 td.pts, th.pts { text-align: right; white-space: nowrap; }
 th.pts { max-width: 7em; overflow: hidden; text-overflow: ellipsis; }
 td.pts .run { display: block; font-size: .78rem; color: var(--muted); }
+.preview-text .before { color: var(--muted); text-decoration: line-through; font-variant-numeric: tabular-nums; }
 td.pts .bt { color: var(--red); font-weight: 700; }
 td.pts.sep, th.pts.sep { border-left: 2px solid var(--ink); }
 .hand-contract { font-weight: 600; white-space: nowrap; }
@@ -379,9 +380,9 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
       // Încălcare de regulă: −10 bile pentru vinovat, runda se reia de la început.
       return { bile: sides.map((t) => (t === h.side ? -PENALTY : 0)), raw: sides.map(() => 0), bt: false, status: h.type };
     }
-    // penalty[t] > 0: n-a luat nicio carte, deci −10 bile și combinațiile lui nu se socotesc (Bela rămâne).
+    // penalty[t] > 0: n-a luat nicio carte, deci −10 bile și nicio combinație a lui nu se socotește (nici Bela).
     const noCards = sides.map((t) => ((h.penalty || [])[t] || 0) > 0);
-    const bela = sides.map((t) => h.decl[t].filter((x) => x === "b").length * DECL.b.v);
+    const bela = sides.map((t) => noCards[t] ? 0 : h.decl[t].filter((x) => x === "b").length * DECL.b.v);
     const comb = sides.map((t) => h.opt || noCards[t] ? 0 : h.decl[t].filter((x) => x !== "b").reduce((s, x) => s + DECL[x].v, 0));
     const b = h.bidder;
     // Ultima mână luată de altcineva decât cel care a ales cozul: o bilă (10 puncte) în plus, socotită înainte de BT.
@@ -401,6 +402,7 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
       bile = mode === "1v1" ? raw.map((x) => x / 10) : raw.map(toBile);
       bt = opps.some((t) => raw[b] < raw[t]);
     }
+    const before = bile.slice();
     if (bt) {
       // BT: punctele celui care a ales cozul se împart între ceilalți. Bela îi rămâne lui.
       const share = (raw[b] - bela[b]) / opps.length;
@@ -408,8 +410,9 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
       bile = mode === "1v1" ? after.map((x) => x / 10) : after.map((x) => toBile(Math.round(x)));
     }
     bile = bile.map((x, t) => r1(x - (noCards[t] ? PENALTY : 0)));
+    const beforeBt = before.map((x, t) => r1(x - (noCards[t] ? PENALTY : 0)));
     const sum = raw.reduce((s, x) => s + x, 0);
-    return { bile, raw, bt, status: bt ? "bt" : "ok", total: mode === "1v1" ? sum / 10 : toBile(sum) };
+    return { bile, before: beforeBt, raw, bt, status: bt ? "bt" : "ok", total: mode === "1v1" ? sum / 10 : toBile(sum) };
   }
 
   // Parcurge rundele în ordine: totaluri, BT-uri, limita jocului și câștigătorul.
@@ -726,7 +729,7 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
       }));
 
       const list = draft.decl[t].length
-        ? draft.decl[t].map((k, i) => el("span", { class: "tag" + (k === "b" ? " bela" : "") + ((draft.opt || draft.penalty[t]) && k !== "b" ? " void" : "") }, [
+        ? draft.decl[t].map((k, i) => el("span", { class: "tag" + (k === "b" ? " bela" : "") + (draft.penalty[t] || (draft.opt && k !== "b") ? " void" : "") }, [
             cardIcons(k, trump),
             DECL[k].label + " +" + DECL[k].v / 10,
             el("button", {
@@ -754,7 +757,7 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
             type: "checkbox", id: "nocards" + t, checked: draft.penalty[t] > 0,
             onchange: (e) => { draft.penalty[t] = e.target.checked ? 1 : 0; render(); }
           }),
-          el("span", {}, [el("b", { text: "N-a luat nicio carte " }), el("small", { text: "−10 bile, combinațiile nu se socotesc" })])
+          el("span", {}, [el("b", { text: "N-a luat nicio carte " }), el("small", { text: "−10 bile, nicio combinație nu se socotește (nici Bela)" })])
         ])
       ]);
     }));
@@ -797,7 +800,7 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
     const parts = [];
     let sum = CARD_TOTAL;
     range(n).forEach((t) => draft.decl[t].forEach((k) => {
-      if (k !== "b" && (draft.opt || draft.penalty[t])) return;
+      if (draft.penalty[t] || (k !== "b" && draft.opt)) return;
       sum += DECL[k].v;
       parts.push("+ " + DECL[k].v / 10 + " " + DECL[k].label + " (" + sideName(t) + ")");
     }));
@@ -825,7 +828,9 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
     const parts = [el("span", { class: "status " + r.status, text: r.bt ? "BT" : "A făcut" })];
     r.bile.forEach((p, t) => {
       if (t) parts.push(" · ");
-      parts.push(sideName(t) + " ", el("b", { text: fmt(p) }));
+      parts.push(sideName(t) + " ");
+      if (r.bt) parts.push(el("span", { class: "before", text: fmt(r.before[t]) }), " → ");
+      parts.push(el("b", { text: fmt(p) }));
     });
     parts.push(el("span", { class: "hand-meta", text: "  (în puncte: " + r.raw.join(" / ") + ")" }));
     box.replaceChildren(...parts);
@@ -870,6 +875,7 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
           return el("td", { class: "pts num" + (t ? " sep" : "") }, [
             isBt ? el("span", { class: "bt", text: "BT " }) : "",
             fmt(row.bile[t]),
+            r.bt ? el("span", { class: "run", text: "înainte " + fmt(r.before[t]) }) : "",
             el("span", { class: "run", text: fmt(row.totals[t]) })
           ]);
         }),
@@ -928,8 +934,8 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
         p("În 3 și în 4:", "se adună bilele rotunjite ale celor care nu au jucat și se scad din totalul jocului. Restul îi revine celui care a jucat. Exemplu: X joacă cu 64 de puncte, Y are 53, Z are 65. Jocul e din 18 bile (182 de puncte), Y primește 5, Z primește 6, iar X primește 18 − 11 = 7 bile. Se compară întâi bilele, apoi, la egalitate de bile, punctele."),
         p("BT:", "dacă cel care a ales cozul are mai puțin decât un adversar, i se scrie BT. Punctele lui se împart în mod egal între ceilalți jucători, iar el păstrează doar Bela. La fiecare al treilea BT (3, 6, 9...) jucătorul primește −10."),
         p("Ultima mână:", "dacă ultima mână o ia altcineva decât cel care a ales cozul, acel jucător primește o bilă în plus. Bila se socotește înainte de a stabili BT-ul. Cele 10 puncte pentru ultima intră oricum în punctele din cărți."),
-        p("Bela", "se socotește mereu celui care o are, chiar și cu BT."),
-        p("Combinațiile", "se adaugă la punctele totale ale rundei, în afară de cazul în care jucătorul care le are nu ia nicio carte. Atunci primește −10 bile și combinațiile lui nu se socotesc. Bela se socotește mereu."),
+        p("Bela", "rămâne celui care o are, chiar și cu BT. Se pierde doar dacă jucătorul nu ia nicio carte."),
+        p("Combinațiile", "se adaugă la punctele totale ale rundei, în afară de cazul în care jucătorul care le are nu ia nicio carte. Atunci primește −10 bile și nicio combinație a lui nu se socotește, nici Bela."),
         p("Încălcare de regulă:", "jucătorul care încalcă o regulă primește −10 bile, iar runda se reia de la început (se scrie ca o rundă separată, fără alte puncte)."),
         p("Combinații egale:", "dacă doi jucători au combinații identice, ele se anulează. Combinația în culoarea cozului are prioritate. Hotărâți la masă care combinații se socotesc."),
         p("Combinații reduse:", "fiecare jucător poate arăta cel mult două combinații de 100 de puncte sau mai mari într-un joc. Dacă într-o rundă îi vine o combinație dublă (de exemplu KKKK + QQQQ), se socotesc toate, apoi nu mai poate arăta altele."),
