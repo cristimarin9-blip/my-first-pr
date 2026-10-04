@@ -269,6 +269,11 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
       <div class="seg" id="trumpSeg"></div>
     </div>
 
+    <div class="field">
+      <span class="label">Ultima mână a luat-o</span>
+      <div class="seg" id="lastSeg"></div>
+    </div>
+
     <div class="cols" id="cols"></div>
 
     <div class="special">
@@ -280,14 +285,20 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
 
     <div class="preview">
       <div class="preview-text" id="preview" aria-live="polite"></div>
-      <button class="btn primary" id="addHand" type="submit">Adaugă runda</button>
+      <div class="top-actions">
+        <button class="btn" id="cancelEdit" type="button" hidden>Renunță la editare</button>
+        <button class="btn primary" id="addHand" type="submit">Adaugă runda</button>
+      </div>
     </div>
   </form>
 
   <section class="panel" aria-labelledby="histTitle">
     <div class="panel-head">
       <h2 id="histTitle">Istoricul rundelor</h2>
-      <button class="btn" id="undo" type="button">Anulează ultima rundă</button>
+      <div class="top-actions">
+        <button class="btn" id="editLast" type="button">Editează ultima rundă</button>
+        <button class="btn" id="undo" type="button">Șterge ultima rundă</button>
+      </div>
     </div>
     <div class="ledger">
       <table>
@@ -308,10 +319,10 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
   "use strict";
 
   const SUITS = {
-    c: { label: "Treflă", sym: "♣", red: false },
-    d: { label: "Caro",   sym: "♦", red: true },
-    h: { label: "Cupă",   sym: "♥", red: true },
-    s: { label: "Pică",   sym: "♠", red: false }
+    c: { label: "Cruce",   sym: "♣", red: false },
+    d: { label: "Diamant", sym: "♦", red: true },
+    h: { label: "Inimă",   sym: "♥", red: true },
+    s: { label: "Cioară",  sym: "♠", red: false }
   };
   const ALL_SUITS = ["♠", "♥", "♦", "♣"];
   const CARD_TOTAL = 162; // 152 în cărți + 10 pentru ultima mână
@@ -328,6 +339,7 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
   const MODES = {
     "1v1": { label: "1 vs 1",       sides: 2, kind: "jucători", defaults: ["Jucătorul 1", "Jucătorul 2"] },
     "3":   { label: "În 3",         sides: 3, kind: "jucători", defaults: ["Jucătorul 1", "Jucătorul 2", "Jucătorul 3"] },
+    "4":   { label: "În 4",         sides: 4, kind: "jucători", defaults: ["Jucătorul 1", "Jucătorul 2", "Jucătorul 3", "Jucătorul 4"] },
     "2v2": { label: "În perechi",   sides: 2, kind: "perechi",  defaults: ["Noi", "Voi"] }
   };
   const PENALTY = 10;      // bile
@@ -358,7 +370,7 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
     const opps = sides.filter((t) => t !== b);
     let bile, bt;
 
-    if (mode === "3") {
+    if (mode === "3" || mode === "4") {
       // Se adună bilele rotunjite ale celor care nu au jucat și se scad din totalul jocului.
       const game = toBile(raw.reduce((s, x) => s + x, 0));
       bile = sides.map((t) => (t === b ? 0 : toBile(raw[t])));
@@ -370,6 +382,8 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
       bt = opps.some((t) => raw[b] < raw[t]);
     }
     if (bt) bile[b] = mode === "1v1" ? bela[b] / 10 : toBile(bela[b]); // Bela se socotește mereu
+    // Ultima mână luată de altcineva decât cel care a ales cozul: o bilă în plus.
+    if (h.last != null && h.last !== b) bile[h.last] += 1;
     const pen = h.penalty || [];
     bile = bile.map((x, t) => r1(x - (pen[t] || 0) * PENALTY));
     return { bile, raw, bt, status: bt ? "bt" : "ok" };
@@ -412,7 +426,7 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
 
   let state = {
     mode: "2v2", target: 51, reduced: false, hands: [],
-    names: { "1v1": MODES["1v1"].defaults.slice(), "3": MODES["3"].defaults.slice(), "2v2": MODES["2v2"].defaults.slice() }
+    names: { "1v1": MODES["1v1"].defaults.slice(), "3": MODES["3"].defaults.slice(), "4": MODES["4"].defaults.slice(), "2v2": MODES["2v2"].defaults.slice() }
   };
   try {
     const saved = JSON.parse(localStorage.getItem(STORE_KEY) || "null");
@@ -436,12 +450,28 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
       manual: range(n).map(() => false),
       decl: range(n).map(() => []),
       penalty: range(n).map(() => 0),
-      opt: false
+      opt: false,
+      last: null
     };
   }
 
   let draft = freshDraft();
   let confirmingNewGame = false;
+  let editing = false; // se editează ultima rundă
+
+  // Rundele de dinaintea celei din formular (fără ultima când o editezi).
+  function baseHands() { return editing ? state.hands.slice(0, -1) : state.hands; }
+
+  function handToDraft(h) {
+    const n = sideCount();
+    if (h.type !== "normala") return freshDraft(draft);
+    return {
+      bidder: h.bidder, trump: h.trump,
+      points: h.points.map(String), manual: range(n).map(() => true),
+      decl: h.decl.map((l) => l.slice()), penalty: (h.penalty || range(n).map(() => 0)).slice(),
+      opt: !!h.opt, last: h.last != null ? h.last : null
+    };
+  }
 
   function save() {
     try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) { /* ignorăm */ }
@@ -451,7 +481,7 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
   function bigCombosShown() {
     const n = sideCount();
     const count = range(n).map(() => 0);
-    state.hands.forEach((h) => {
+    baseHands().forEach((h) => {
       if (h.type !== "normala" || h.opt) return;
       h.decl.forEach((list, t) => { count[t] += list.filter((k) => DECL[k].big).length; });
     });
@@ -465,6 +495,7 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
     if (points.some((x) => !Number.isInteger(x) || x < 0)) return { error: "Punctele trebuie să fie numere întregi." };
     const sum = points.reduce((s, x) => s + x, 0);
     if (sum !== CARD_TOTAL) return { error: "Punctele din cărți trebuie să dea " + CARD_TOTAL + " (acum " + sum + ")." };
+    if (draft.last === null) return { error: "Alegeți cine a luat ultima mână." };
     return {
       hand: {
         type: "normala",
@@ -473,7 +504,8 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
         points,
         decl: draft.decl.map((l) => l.slice()),
         penalty: draft.penalty.slice(),
-        opt: draft.opt
+        opt: draft.opt,
+        last: draft.last
       }
     };
   }
@@ -602,10 +634,13 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
     }
   }
 
-  function renderForm(game) {
+  function renderForm() {
+    const game = computeGame(baseHands(), state.target, state.mode);
     const over = game.winner !== null;
     const n = sideCount();
-    $("handTitle").textContent = "Runda " + (state.hands.length + 1);
+    $("handTitle").textContent = editing ? "Editezi runda " + state.hands.length : "Runda " + (state.hands.length + 1);
+    $("addHand").textContent = editing ? "Salvează runda" : "Adaugă runda";
+    $("cancelEdit").hidden = !editing;
     $("bidderLabel").textContent = state.mode === "2v2" ? "Perechea care a ales cozul" : "A ales cozul";
 
     $("bidderSeg").replaceChildren(...range(n).map((t) => el("button", {
@@ -620,6 +655,11 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
         onclick: () => { draft.trump = key; render(); }
       }, [el("span", { class: "sym" + (s.red ? " red" : ""), text: s.sym, "aria-hidden": "true" }), s.label]);
     }));
+
+    $("lastSeg").replaceChildren(...range(n).map((t) => el("button", {
+      type: "button", class: "chip", "aria-pressed": String(draft.last === t),
+      onclick: () => { draft.last = t; render(); }
+    }, [sideName(t)])));
 
     const trump = SUITS[draft.trump].sym;
     const belaUsed = draft.decl.reduce((s, l) => s + l.filter((x) => x === "b").length, 0);
@@ -637,7 +677,7 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
         if (n === 2) draft.manual[1 - t] = false;
         autofillPoints(t);
         range(n).forEach((o) => { if (o !== t) { const other = $("points" + o); if (other) other.value = draft.points[o]; } });
-        renderPreview(computeGame(state.hands, state.target, state.mode));
+        renderPreview(computeGame(baseHands(), state.target, state.mode));
       });
 
       const bigBlocked = state.reduced && shown[t] >= 2;
@@ -706,6 +746,8 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
     );
 
     [...$("handForm").querySelectorAll("button, input")].forEach((node) => { if (over) node.disabled = true; });
+    if (!over) $("opt").disabled = false;
+    $("cancelEdit").disabled = false;
     renderPreview(game);
   }
 
@@ -713,7 +755,7 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
     const box = $("preview");
     const btn = $("addHand");
     if (game.winner !== null) {
-      box.textContent = "Jocul s-a terminat. Anulați ultima rundă sau începeți un joc nou.";
+      box.textContent = "Jocul s-a terminat. Editați sau ștergeți ultima rundă, sau începeți un joc nou.";
       btn.disabled = true;
       return;
     }
@@ -752,6 +794,7 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
       else {
         title = trumpLabel(h.trump);
         meta.push("cozul ales de " + sideName(h.bidder));
+        if (h.last != null) meta.push("ultima: " + sideName(h.last) + (h.last !== h.bidder ? " (+1 bilă)" : ""));
         if (r.bt) meta.push("BT");
         if (row.btPenalty) meta.push("al " + BT_LIMIT + "-lea BT: −" + PENALTY + " bile");
         if (h.opt) meta.push("patru de opt: combinațiile anulate");
@@ -772,7 +815,7 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
         }),
         el("td", { class: "del" }, [el("button", {
           type: "button", "aria-label": "Șterge runda " + (i + 1), text: "×",
-          onclick: () => { state.hands.splice(i, 1); save(); render(); }
+          onclick: () => { state.hands.splice(i, 1); editing = false; save(); render(); }
         })])
       ]);
     }).reverse());
@@ -792,7 +835,8 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
         onclick: () => { confirmingNewGame = true; render(); }
       }));
     }
-    $("undo").disabled = !state.hands.length;
+    $("undo").disabled = !state.hands.length || editing;
+    $("editLast").disabled = !state.hands.length || editing;
   }
 
   function renderRules() {
@@ -820,8 +864,9 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
         p("Puncte în bile:", "10 puncte = 1 bilă, 35 puncte = 3 bile, 66 puncte = 7 bile. 5 se rotunjește în jos, 6 în sus."),
         p("1 vs 1:", "în tabelă se scriu bilele nerotunjite, adică punctele împărțite la 10 (de exemplu 6,4)."),
         p("În perechi:", "fiecare pereche primește bilele rotunjite ale punctelor sale. Dacă punctele sunt egale, bilele se împart egal (106 la 106 înseamnă 11 la 11). Nu există sistemul „ouălelor”."),
-        p("În 3:", "se adună bilele rotunjite ale celor doi care nu au jucat și se scad din totalul jocului. Restul îi revine celui care a jucat. Exemplu: X joacă cu 64 de puncte, Y are 53, Z are 65. Jocul e din 18 bile (182 de puncte), Y primește 5, Z primește 6, iar X primește 18 − 11 = 7 bile. Se compară întâi bilele, apoi, la egalitate de bile, punctele."),
+        p("În 3 și în 4:", "se adună bilele rotunjite ale celor care nu au jucat și se scad din totalul jocului. Restul îi revine celui care a jucat. Exemplu: X joacă cu 64 de puncte, Y are 53, Z are 65. Jocul e din 18 bile (182 de puncte), Y primește 5, Z primește 6, iar X primește 18 − 11 = 7 bile. Se compară întâi bilele, apoi, la egalitate de bile, punctele."),
         p("BT:", "dacă cel care a ales cozul are mai puțin decât un adversar, i se scrie BT și nu primește bile pentru rundă. Adversarii își primesc bilele lor. La al treilea BT jucătorul primește −10 bile."),
+        p("Ultima mână:", "dacă ultima mână o ia altcineva decât cel care a ales cozul, acel jucător primește o bilă în plus. Cele 10 puncte pentru ultima intră oricum în punctele din cărți."),
         p("Bela", "se socotește mereu celui care o are, chiar și cu BT."),
         p("−10 bile:", "jucătorul care nu a luat nicio carte primește −10 bile."),
         p("Combinații egale:", "dacă doi jucători au combinații identice, ele se anulează. Combinația în culoarea cozului are prioritate. Hotărâți la masă care combinații se socotesc."),
@@ -836,13 +881,15 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
     renderTop();
     renderSetup();
     renderSheet(game);
-    renderForm(game);
+    renderForm();
     renderRows(game);
   }
 
   function addSpecial(hand) {
-    if (computeGame(state.hands, state.target, state.mode).winner !== null) return;
-    state.hands.push(hand);
+    if (computeGame(baseHands(), state.target, state.mode).winner !== null) return;
+    if (editing) state.hands[state.hands.length - 1] = hand;
+    else state.hands.push(hand);
+    editing = false;
     draft = freshDraft(draft);
     save();
     render();
@@ -851,6 +898,7 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
   function startNewGame() {
     state.hands = [];
     confirmingNewGame = false;
+    editing = false;
     draft = freshDraft();
     save();
     render();
@@ -866,6 +914,14 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
   });
 
   $("undo").addEventListener("click", () => { state.hands.pop(); save(); render(); });
+  $("editLast").addEventListener("click", () => {
+    if (!state.hands.length) return;
+    editing = true;
+    draft = handToDraft(state.hands[state.hands.length - 1]);
+    render();
+    $("handForm").scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+  $("cancelEdit").addEventListener("click", () => { editing = false; draft = freshDraft(draft); render(); });
   $("opt").addEventListener("change", (e) => { draft.opt = e.target.checked; render(); });
   $("reduced").addEventListener("change", (e) => { state.reduced = e.target.checked; save(); render(); });
 
