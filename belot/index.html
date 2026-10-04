@@ -84,11 +84,10 @@ button { cursor: pointer; }
 .sheet-head { display: grid; }
 .team { padding: 16px 18px 14px; display: grid; gap: 6px; min-width: 0; }
 .team + .team { border-left: 2px solid var(--ink); }
-.team input.name {
-  border: 0; border-bottom: 1px dashed transparent; background: transparent; padding: 0; width: 100%;
-  font-weight: 600; font-size: .95rem; color: var(--muted); min-width: 0;
-}
-.team input.name:hover, .team input.name:focus { border-bottom-color: var(--line); outline: none; }
+.team .name { font-weight: 600; font-size: .95rem; color: var(--muted); overflow-wrap: anywhere; }
+.names { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; width: 100%; }
+.names label { display: grid; gap: 4px; font-size: .78rem; color: var(--muted); }
+.names input { padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); min-width: 0; width: 100%; }
 .total { font-family: var(--font-display); font-size: clamp(2.4rem, 10vw, 3.4rem); line-height: 1; }
 .sheet.many .total { font-size: clamp(1.9rem, 8vw, 2.8rem); }
 .sheet.many .team { padding: 14px 12px 12px; }
@@ -243,6 +242,10 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
       <span class="label">Jocul până la</span>
       <div class="seg" id="targetSeg"></div>
     </div>
+    <div class="field" style="width:100%">
+      <span class="label">Numele</span>
+      <div class="names" id="namesBox"></div>
+    </div>
     <label class="toggle" for="reduced"><input type="checkbox" id="reduced"> Combinații reduse</label>
     <span class="setup-note" id="setupNote"></span>
   </section>
@@ -365,8 +368,10 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
     }
     const bela = sides.map((t) => h.decl[t].filter((x) => x === "b").length * DECL.b.v);
     const comb = sides.map((t) => h.opt ? 0 : h.decl[t].filter((x) => x !== "b").reduce((s, x) => s + DECL[x].v, 0));
-    const raw = sides.map((t) => h.points[t] + comb[t] + bela[t]);
     const b = h.bidder;
+    // Ultima mână luată de altcineva decât cel care a ales cozul: o bilă (10 puncte) în plus, socotită înainte de BT.
+    const extra = sides.map((t) => (h.last != null && h.last === t && t !== b ? 10 : 0));
+    const raw = sides.map((t) => h.points[t] + comb[t] + bela[t] + extra[t]);
     const opps = sides.filter((t) => t !== b);
     let bile, bt;
 
@@ -381,9 +386,12 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
       bile = mode === "1v1" ? raw.map((x) => x / 10) : raw.map(toBile);
       bt = opps.some((t) => raw[b] < raw[t]);
     }
-    if (bt) bile[b] = mode === "1v1" ? bela[b] / 10 : toBile(bela[b]); // Bela se socotește mereu
-    // Ultima mână luată de altcineva decât cel care a ales cozul: o bilă în plus.
-    if (h.last != null && h.last !== b) bile[h.last] += 1;
+    if (bt) {
+      // BT: punctele celui care a ales cozul se împart între ceilalți. Bela îi rămâne lui.
+      const share = (raw[b] - bela[b]) / opps.length;
+      const after = sides.map((t) => (t === b ? bela[b] : raw[t] + share));
+      bile = mode === "1v1" ? after.map((x) => x / 10) : after.map((x) => toBile(Math.round(x)));
+    }
     const pen = h.penalty || [];
     bile = bile.map((x, t) => r1(x - (pen[t] || 0) * PENALTY));
     return { bile, raw, bt, status: bt ? "bt" : "ok" };
@@ -567,9 +575,23 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
         type: "button", class: "chip", "aria-pressed": String(state.target === v), disabled: locked,
         onclick: choose(() => { state.target = v; })
       }, [v + " bile"])));
+    buildNames();
     $("reduced").checked = state.reduced;
     $("reduced").disabled = locked;
     $("setupNote").textContent = locked ? "Pentru a schimba setările începeți un joc nou." : "";
+  }
+
+  // Numele se pot schimba oricând, și în timpul jocului.
+  let namesKey = "";
+  function buildNames() {
+    if (namesKey === state.mode) return;
+    namesKey = state.mode;
+    $("namesBox").replaceChildren(...range(sideCount()).map((t) => {
+      const input = el("input", { id: "nameInput" + t, maxlength: "24", placeholder: mode().defaults[t],
+        value: state.names[state.mode][t] === mode().defaults[t] ? "" : state.names[state.mode][t] });
+      input.addEventListener("input", () => { state.names[state.mode][t] = input.value; save(); render(); });
+      return el("label", { for: "nameInput" + t }, [mode().defaults[t], input]);
+    }));
   }
 
   let sheetKey = "";
@@ -581,10 +603,8 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
     const head = $("sheetHead");
     head.style.gridTemplateColumns = "repeat(" + n + ", minmax(0, 1fr))";
     head.replaceChildren(...range(n).map((t) => {
-      const input = el("input", { class: "name", id: "name" + t, maxlength: "24", "aria-label": "Numele pentru " + mode().defaults[t] });
-      input.addEventListener("input", () => { state.names[state.mode][t] = input.value; save(); render(); });
       return el("div", { class: "team", id: "team" + t }, [
-        input,
+        el("div", { class: "name", id: "name" + t }),
         el("div", { class: "total num", id: "total" + t, text: "0" }),
         el("div", { class: "bar" }, [el("span", { id: "bar" + t, style: "width:0" })]),
         el("div", { class: "togo num", id: "togo" + t })
@@ -606,12 +626,11 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
       $("total" + t).textContent = fmt(total);
       $("bar" + t).style.width = Math.max(0, Math.min(100, (total / game.limit) * 100)) + "%";
       const left = r1(game.limit - total);
-      const kids = [el("span", { text: total > game.limit ? "Peste " + game.limit : "mai are " + fmt(left) + " până la " + game.limit })];
+      const kids = [el("span", { text: total > game.limit ? "Peste " + game.limit : "mai are " + fmt(left) + " bile" })];
       if (game.bts[t]) kids.push(el("span", { class: "bt-count", text: "BT: " + (game.bts[t] % BT_LIMIT) + "/" + BT_LIMIT }));
       $("togo" + t).replaceChildren(...kids);
       $("team" + t).classList.toggle("leader", lead === t && total > 0);
-      const nameInput = $("name" + t);
-      if (document.activeElement !== nameInput) nameInput.value = state.names[state.mode][t];
+      $("name" + t).textContent = sideName(t);
     });
 
     const note = $("limitNote");
@@ -865,8 +884,8 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
         p("1 vs 1:", "în tabelă se scriu bilele nerotunjite, adică punctele împărțite la 10 (de exemplu 6,4)."),
         p("În perechi:", "fiecare pereche primește bilele rotunjite ale punctelor sale. Dacă punctele sunt egale, bilele se împart egal (106 la 106 înseamnă 11 la 11). Nu există sistemul „ouălelor”."),
         p("În 3 și în 4:", "se adună bilele rotunjite ale celor care nu au jucat și se scad din totalul jocului. Restul îi revine celui care a jucat. Exemplu: X joacă cu 64 de puncte, Y are 53, Z are 65. Jocul e din 18 bile (182 de puncte), Y primește 5, Z primește 6, iar X primește 18 − 11 = 7 bile. Se compară întâi bilele, apoi, la egalitate de bile, punctele."),
-        p("BT:", "dacă cel care a ales cozul are mai puțin decât un adversar, i se scrie BT și nu primește bile pentru rundă. Adversarii își primesc bilele lor. La al treilea BT jucătorul primește −10 bile."),
-        p("Ultima mână:", "dacă ultima mână o ia altcineva decât cel care a ales cozul, acel jucător primește o bilă în plus. Cele 10 puncte pentru ultima intră oricum în punctele din cărți."),
+        p("BT:", "dacă cel care a ales cozul are mai puțin decât un adversar, i se scrie BT. Punctele lui se împart în mod egal între ceilalți jucători, iar el păstrează doar Bela. La fiecare al treilea BT (3, 6, 9...) jucătorul primește −10."),
+        p("Ultima mână:", "dacă ultima mână o ia altcineva decât cel care a ales cozul, acel jucător primește o bilă în plus. Bila se socotește înainte de a stabili BT-ul. Cele 10 puncte pentru ultima intră oricum în punctele din cărți."),
         p("Bela", "se socotește mereu celui care o are, chiar și cu BT."),
         p("−10 bile:", "jucătorul care nu a luat nicio carte primește −10 bile."),
         p("Combinații egale:", "dacă doi jucători au combinații identice, ele se anulează. Combinația în culoarea cozului are prioritate. Hotărâți la masă care combinații se socotesc."),

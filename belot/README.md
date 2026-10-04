@@ -6,11 +6,12 @@ Ce urmărește:
 
 - Mesele 1 vs 1 (bile nerotunjite), în 3 și în 4 (algoritmul de scădere din totalul jocului) și în perechi.
 - Culorile: cruce, diamant, inimă, cioară.
-- O bilă în plus pentru jucătorul care ia ultima mână, dacă nu el a ales cozul.
+- O bilă în plus pentru jucătorul care ia ultima mână, dacă nu el a ales cozul (socotită înainte de BT).
+- Numele jucătorilor se pot schimba oricând.
 - Editarea și ștergerea ultimei runde.
 - Punctele din cărți (162 cu ultima mână) transformate în bile: 10 = 1, 35 = 3, 66 = 7.
 - Combinațiile, cu desenul cărților: terț 20, jumate de sută 50, o sută 100, patru de 10/D/K/A 100, patru de nouă 150, patru de valet 200, bela 20.
-- BT pentru cel care a ales cozul și a luat mai puțin; la al treilea BT, −10 bile. Bela se socotește mereu.
+- BT pentru cel care a ales cozul și a luat mai puțin: punctele lui se împart între ceilalți, el păstrează doar bela. La fiecare al treilea BT, −10.
 - −10 bile pentru jucătorul care nu a luat nicio carte.
 - Cazuri speciale: patru de opt (anulează combinațiile, în afară de bela), patru de șapte (runda se anulează), combinația BELOT (câștig instant).
 - Combinații reduse (opțional): cel mult două combinații de 100+ pe joc, cu excepția combinației duble.
