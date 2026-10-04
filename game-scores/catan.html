@@ -42,7 +42,7 @@
     <div id="players" class="field"></div>
   </section>
 
-  <section class="panel" id="photoPanel" hidden aria-label="Read the board from a photo">
+  <section class="panel" id="photoPanel" aria-label="Read the board from a photo">
     <div class="row"><span id="photoBtn"></span><span class="small muted">Counts settlements and cities by colour. You check before anything changes.</span></div>
     <div id="photoReview"></div>
   </section>
@@ -157,7 +157,6 @@
   }
   function renderPhoto() {
     if (!$("photoBtn").firstChild) $("photoBtn").append(GS.photoButton("Read the board from a photo", readBoard));
-    GS.photo().available().then((ok) => { $("photoPanel").hidden = !ok; });
     const box = $("photoReview");
     if (!review) { box.replaceChildren(); return; }
     if (review.status === "reading") { box.replaceChildren(el("div", { class: "reading", text: "Reading the board… this can take up to a minute." })); return; }

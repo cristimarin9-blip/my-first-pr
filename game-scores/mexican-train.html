@@ -9,7 +9,7 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Young+Serif&family=Figtree:wght@400;500;600;700&display=swap">
 <link rel="stylesheet" href="shared.css">
 <style>
-/* Layout: setup, standings (lowest first), the round entry with the engine double, then the round-by-round sheet. */
+/* Layout: players, standings (lowest first), the round entry with the engine double, then the round-by-round sheet. */
 :root { --accent: #b14d16; --accent-soft: #f6e4d8; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --accent: #ee9a62; --accent-soft: #3a2416; } }
 :root[data-theme="dark"] { --accent: #ee9a62; --accent-soft: #3a2416; }
@@ -20,12 +20,28 @@
 }
 .domino span { display: grid; place-items: center; }
 .domino span + span { border-left: 1px solid var(--line); }
-.entry { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
-.entry .who { display: grid; gap: 6px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; min-width: 0; }
+.entry { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+.entry .who { display: grid; gap: 8px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; min-width: 0; }
 .entry .who .name { font-weight: 700; display: flex; gap: 6px; align-items: center; overflow-wrap: anywhere; }
+.entry .who.photo-open { grid-column: 1 / -1; }
 .standings .player { grid-template-columns: auto 1fr auto; align-items: center; gap: 4px 12px; }
 .standings .rank { font-family: var(--font-display); font-size: 1.2rem; color: var(--muted); width: 1.5em; }
 .standings .total { font-size: 1.8rem; }
+
+/* Photo review: the photo with a numbered marker on every domino half. */
+.shot { position: relative; border-radius: 8px; overflow: hidden; background: #000; }
+.shot img { display: block; width: 100%; height: auto; max-height: 70vh; object-fit: contain; }
+.pip-mark {
+  position: absolute; transform: translate(-50%, -50%); min-width: 1.9em; height: 1.9em; padding: 0 .3em; border-radius: 999px;
+  border: 2px solid #fff; background: #1f5a45; color: #fff; font-weight: 800; font-size: .9rem; display: grid; place-items: center;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .5); font-variant-numeric: tabular-nums;
+}
+.pip-mark.unsure { background: #c98a12; }
+.pip-mark.picked { outline: 3px solid #fff; outline-offset: 2px; }
+.sum { font-family: var(--font-display); font-size: 1.6rem; color: var(--accent); font-variant-numeric: tabular-nums; }
+.pad { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.pad button { border: 1px solid var(--line); background: var(--paper); border-radius: 6px; padding: 6px 0; font-weight: 700; font-variant-numeric: tabular-nums; }
+.pad button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
 </style>
 </head>
 <body>
@@ -39,13 +55,8 @@
   </header>
 
   <section class="panel" aria-label="Setup">
-    <div class="row">
-      <span class="label">Domino set</span>
-      <div class="seg" id="setSeg"></div>
-    </div>
     <div id="players" class="field"></div>
-    <label class="toggle" for="dz"><input type="checkbox" id="dz"> Double blank left in hand counts 50</label>
-    <span class="small muted" id="setupNote"></span>
+    <span class="small muted">Double-12 set: 13 rounds, from double-12 down to the double blank.</span>
   </section>
 
   <div id="banner" class="banner" hidden></div>
@@ -81,12 +92,10 @@
   <details class="rules">
     <summary>Scoring rules</summary>
     <div class="body">
-      <p>A game has one round per double, starting with the highest (double-12 for a double-12 set) and ending with the double blank. Double-9 sets play 10 rounds, double-12 sets 13 and double-15 sets 16.</p>
-      <p>When a player plays their last domino the round ends. Everyone else counts the pips on the dominoes left in their hand and adds them to their score. The player who went out scores 0.</p>
-      <p>If the round is blocked, everyone counts their pips.</p>
-      <p>Many tables count the double blank as 50 points when it is left in a hand. Turn this on in the setup if you play that way.</p>
+      <p>The game uses a double-12 set and has 13 rounds, one for each double, starting with double-12 and ending with the double blank.</p>
+      <p>When a player plays their last domino the round ends. Everyone else counts the pips on the dominoes left in their hand and adds them to their score. The player who went out scores 0. If the round is blocked, everyone counts their pips.</p>
       <p>After the last round the player with the lowest total wins.</p>
-      <p><b>Count from photo:</b> lay the dominoes left in a hand face up and take a photo. Claude counts the pips on each domino; you check them before the total is used. Dominoes it was unsure about are highlighted and must be checked first.</p>
+      <p><b>Count from photo:</b> lay the dominoes left in a hand face up, close together, and take the photo from above. Every domino half Claude finds gets a numbered marker on the photo. Markers in orange were hard to read: tap one and pick the right number. Then press Use to put the sum in the round.</p>
     </div>
   </details>
 </div>
@@ -96,86 +105,107 @@
   "use strict";
   const { el, load, save, range, playerName, dot } = GS;
   const KEY = "gs-mexican-train-v1";
+  const SET = 12;
+  const ROUNDS = SET + 1;
   const $ = (id) => document.getElementById(id);
 
-  let state = load(KEY, null) || { set: 12, players: GS.defaultPlayers(4), rounds: [], doubleZero50: false };
+  let state = load(KEY, null) || { players: GS.defaultPlayers(4), rounds: [] };
   let draft = null, editing = false;
 
-  const totalRounds = () => state.set + 1;
-  const doubleFor = (i) => state.set - i;
-  const persist = () => save(KEY, state);
+  const doubleFor = (i) => SET - i;
+  const persist = () => save(KEY, { players: state.players, rounds: state.rounds });
 
-  function freshDraft() {
-    return { pips: state.players.map(() => ""), dz: state.players.map(() => false) };
+  function freshDraft() { return { pips: state.players.map(() => "") }; }
+  draft = freshDraft();
+
+  const roundScore = (r, i) => r.pips[i];
+  function totals(rounds) {
+    return state.players.map((_, i) => rounds.reduce((s, r) => s + roundScore(r, i), 0));
   }
 
   // ---------- photo of a hand ----------
-  // reviews[i]: { status: "reading" | "done" | "error", dominoes: [{a, b, sure}], notes, error }
+  // reviews[i]: { status: "reading" | "done" | "error", url, halves: [{x, y, pips, sure}], picked, notes, error }
   let reviews = {};
-  function handPrompt() {
-    return "This photo shows the dominoes left in ONE player's hand at the end of a Mexican Train round, "
-      + "played with a double-" + state.set + " set (each half has 0 to " + state.set + " pips). "
-      + "Find every domino in the photo and count the pips on each half. Ignore dominoes that are clearly part of a train on the table. "
-      + "Reply with only JSON in this shape: "
-      + '{"dominoes":[{"a":6,"b":3,"sure":true}],"notes":""}. '
-      + 'Set "sure" to false for any domino that is blurry, partly hidden, cut off by the edge, or where you are not certain of a pip count. '
-      + 'Use "notes" for anything the player should check, for example a domino you may have missed. Empty array if there are no dominoes.';
-  }
+  const HAND_PROMPT = "This photo shows the dominoes left in ONE player's hand at the end of a Mexican Train round, "
+    + "played with a double-12 set (each half has 0 to 12 pips; a blank half has 0). "
+    + "Find every domino and look at each of its two halves separately. For each half give the position of its centre as a fraction of the image "
+    + "(x from the left edge, y from the top edge, both between 0 and 1) and count its pips. "
+    + "Ignore anything that is not a domino. "
+    + "Reply with only JSON in this shape: "
+    + '{"dominoes":[{"halves":[{"x":0.21,"y":0.40,"pips":6,"sure":true},{"x":0.27,"y":0.40,"pips":3,"sure":true}]}],"notes":""}. '
+    + 'Set "sure" to false for a half that is blurry, partly hidden, cut off, or where you are not certain of the count. '
+    + 'Use "notes" for anything the player should check, for example a domino that may be hidden.';
+
   async function readHand(i, file) {
-    reviews[i] = { status: "reading" };
+    if (reviews[i] && reviews[i].url) URL.revokeObjectURL(reviews[i].url);
+    reviews[i] = { status: "reading", url: URL.createObjectURL(file) };
     renderForm();
     try {
-      const res = await GS.readPhoto(file, handPrompt());
-      const list = Array.isArray(res && res.dominoes) ? res.dominoes : [];
-      reviews[i] = {
-        status: "done",
-        dominoes: list.map((d) => ({ a: clampPip(d.a), b: clampPip(d.b), sure: d.sure !== false })),
-        notes: res && typeof res.notes === "string" ? res.notes : ""
-      };
+      const res = await GS.readPhoto(file, HAND_PROMPT);
+      const halves = [];
+      (Array.isArray(res && res.dominoes) ? res.dominoes : []).forEach((d) => {
+        (Array.isArray(d && d.halves) ? d.halves : []).forEach((h) => halves.push({
+          x: frac(h.x), y: frac(h.y), pips: clampPip(h.pips), sure: h.sure !== false && d.sure !== false
+        }));
+      });
+      reviews[i] = Object.assign(reviews[i], { status: "done", halves, picked: null, notes: res && typeof res.notes === "string" ? res.notes : "" });
     } catch (e) {
-      reviews[i] = { status: "error", error: GS.photoError(e) };
+      reviews[i] = Object.assign(reviews[i], { status: "error", error: GS.photoError(e) });
     }
     renderForm();
   }
-  function clampPip(v) { const n = Math.round(Number(v)); return Number.isFinite(n) ? Math.max(0, Math.min(state.set, n)) : 0; }
+  const frac = (v) => { const n = Number(v); return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 0.5; };
+  const clampPip = (v) => { const n = Math.round(Number(v)); return Number.isFinite(n) ? Math.max(0, Math.min(SET, n)) : 0; };
+  function closeReview(i) { if (reviews[i] && reviews[i].url) URL.revokeObjectURL(reviews[i].url); delete reviews[i]; renderForm(); }
 
   function reviewBox(i) {
     const r = reviews[i];
     if (!r) return null;
-    if (r.status === "reading") return el("div", { class: "reading", text: "Reading the photo… this can take up to a minute." });
+    const img = el("img", { src: r.url, alt: "Photo of the dominoes left in the hand" });
+    if (r.status === "reading") return el("div", { class: "review" }, [el("div", { class: "shot" }, [img]), el("div", { class: "reading", text: "Counting the pips… this can take up to a minute." })]);
     if (r.status === "error") return el("div", { class: "review" }, [el("span", { class: "warn", text: r.error }),
-      el("div", { class: "actions" }, [el("button", { type: "button", class: "btn sm", text: "Close", onclick: () => { delete reviews[i]; renderForm(); } })])]);
-    const total = r.dominoes.reduce((s, d) => s + d.a + d.b, 0);
-    const hasDz = r.dominoes.some((d) => d.a === 0 && d.b === 0);
-    const unsure = r.dominoes.filter((d) => !d.sure).length;
-    const num = (d, k) => {
-      const inp = el("input", { type: "number", min: "0", max: String(state.set), value: String(d[k]), "aria-label": "Pips" });
-      inp.addEventListener("change", () => { d[k] = clampPip(inp.value); d.sure = true; renderForm(); });
-      return inp;
-    };
+      el("div", { class: "actions" }, [el("button", { type: "button", class: "btn sm", text: "Close", onclick: () => closeReview(i) })])]);
+
+    const total = r.halves.reduce((s, h) => s + h.pips, 0);
+    const unsure = r.halves.filter((h) => !h.sure).length;
+    const marks = r.halves.map((h, k) => el("button", {
+      type: "button", class: "pip-mark" + (h.sure ? "" : " unsure") + (r.picked === k ? " picked" : ""),
+      style: { left: (h.x * 100) + "%", top: (h.y * 100) + "%" }, text: String(h.pips),
+      "aria-label": "Half with " + h.pips + " pips" + (h.sure ? "" : ", unsure") + ". Tap to change.",
+      onclick: () => { r.picked = r.picked === k ? null : k; renderForm(); }
+    }));
+    const picked = r.picked !== null ? r.halves[r.picked] : null;
     return el("div", { class: "review" }, [
-      el("div", { class: "review-head" }, [el("span", { text: r.dominoes.length + " dominoes, " + total + " pips" }),
-        unsure ? el("span", { class: "tag gold", text: unsure + " to check" }) : el("span", { class: "tag", text: "All read clearly" })]),
-      el("div", { class: "items" }, r.dominoes.map((d, k) => el("span", { class: "item" + (d.sure ? "" : " unsure") }, [
-        num(d, "a"), "|", num(d, "b"),
-        el("button", { type: "button", text: "×", "aria-label": "Remove domino", onclick: () => { r.dominoes.splice(k, 1); renderForm(); } })
-      ])).concat([el("button", { type: "button", class: "btn sm", text: "+ Domino", onclick: () => { r.dominoes.push({ a: 0, b: 0, sure: false }); renderForm(); } })])),
-      unsure ? el("span", { class: "warn", text: "Highlighted dominoes were hard to read. Fix the numbers if needed, or confirm they are correct." }) : null,
+      el("div", { class: "review-head" }, [
+        el("span", {}, ["Score sum ", el("span", { class: "sum", text: String(total) })]),
+        unsure ? el("span", { class: "tag gold", text: unsure + " to check" }) : el("span", { class: "tag", text: r.halves.length + " halves read" })
+      ]),
+      el("div", { class: "shot" }, [img, ...marks]),
+      picked ? el("div", { class: "field" }, [
+        el("span", { class: "small", text: "Pips on the selected half:" }),
+        el("div", { class: "pad" }, range(SET + 1).map((v) => el("button", {
+          type: "button", text: String(v), "aria-pressed": String(picked.pips === v),
+          onclick: () => { picked.pips = v; picked.sure = true; r.picked = null; renderForm(); }
+        }))),
+        el("div", { class: "row" }, [
+          el("button", { type: "button", class: "btn sm danger", text: "Not a domino half", onclick: () => { r.halves.splice(r.picked, 1); r.picked = null; renderForm(); } })
+        ])
+      ]) : el("span", { class: "small muted", text: unsure ? "Tap an orange marker to check it." : "Tap a marker to change it." }),
       r.notes ? el("span", { class: "warn", text: r.notes }) : null,
+      el("div", { class: "row" }, [
+        el("span", { class: "small muted", text: "Missed a half?" }),
+        el("button", { type: "button", class: "btn sm", text: "Add one", onclick: () => { r.halves.push({ x: 0.5, y: 0.5, pips: 0, sure: false }); r.picked = r.halves.length - 1; renderForm(); } })
+      ]),
       el("div", { class: "actions" }, [
-        el("button", { type: "button", class: "btn sm", text: "Discard", onclick: () => { delete reviews[i]; renderForm(); } }),
-        unsure ? el("button", { type: "button", class: "btn sm", text: "Highlighted ones are correct", onclick: () => { r.dominoes.forEach((d) => { d.sure = true; }); renderForm(); } }) : null,
-        el("button", { type: "button", class: "btn primary sm", text: "Use " + total + " pips" + (hasDz && state.doubleZero50 ? " + double blank" : ""), disabled: unsure > 0,
-          onclick: () => { draft.pips[i] = String(total); draft.dz[i] = hasDz; delete reviews[i]; renderForm(); } })
+        el("button", { type: "button", class: "btn sm", text: "Discard", onclick: () => closeReview(i) }),
+        unsure ? el("button", { type: "button", class: "btn sm", text: "Orange ones are correct", onclick: () => { r.halves.forEach((h) => { h.sure = true; }); renderForm(); } }) : null,
+        el("button", { type: "button", class: "btn primary sm", text: "Use " + total + " pips", disabled: unsure > 0,
+          onclick: () => { draft.pips[i] = String(total); closeReview(i); } })
       ])
     ]);
   }
-  draft = freshDraft();
 
-  function roundScore(r, i) { return r.pips[i] + (r.dz && r.dz[i] && state.doubleZero50 ? 50 : 0); }
-  function totals(rounds) {
-    return state.players.map((_, i) => rounds.reduce((s, r) => s + roundScore(r, i), 0));
-  }
+  // ---------- setup, standings, form, sheet ----------
 
   const setup = GS.playerSetup($("players"), {
     id: "mt", min: 2, max: 8,
@@ -188,65 +218,52 @@
   });
 
   function renderSetup() {
-    const locked = state.rounds.length > 0;
-    $("setSeg").replaceChildren(...[9, 12, 15].map((n) => el("button", {
-      type: "button", class: "chip", "aria-pressed": String(state.set === n), disabled: locked,
-      onclick: () => { state.set = n; persist(); render(); }
-    }, ["Double-" + n])));
-    setup(state.players, locked);
-    $("dz").checked = state.doubleZero50;
-    $("setupNote").textContent = locked ? "Start a new game to change the set or the number of players." : "";
+    setup(state.players, state.rounds.length > 0);
     $("newGame").replaceChildren(GS.confirmButton("New game", "Clear all rounds?", () => {
       state.rounds = []; editing = false; draft = freshDraft(); persist(); render();
     }));
   }
 
   function renderStandings() {
-    const done = editing ? state.rounds.slice(0, -1) : state.rounds;
     const t = totals(state.rounds);
     const order = range(state.players.length).sort((a, b) => t[a] - t[b]);
     const best = t[order[0]];
     $("standings").replaceChildren(...order.map((i, rank) => el("div", { class: "player" + (t[i] === best && state.rounds.length ? " lead" : "") }, [
       el("span", { class: "rank", text: String(rank + 1) }),
       el("div", {}, [el("div", { class: "row" }, [dot(state.players[i].color), el("b", { text: playerName(state.players[i], i) })]),
-        el("span", { class: "small muted", text: state.rounds.length ? "after " + state.rounds.length + " of " + totalRounds() + " rounds" : "no rounds yet" })]),
+        el("span", { class: "small muted", text: state.rounds.length ? "after " + state.rounds.length + " of " + ROUNDS + " rounds" : "no rounds yet" })]),
       el("span", { class: "total num", text: String(t[i]) })
     ])));
-    const over = state.rounds.length >= totalRounds();
+    const over = state.rounds.length >= ROUNDS;
     const banner = $("banner");
     banner.hidden = !over;
     if (over) {
       const winners = order.filter((i) => t[i] === best).map((i) => playerName(state.players[i], i));
       banner.replaceChildren(el("strong", { text: winners.join(" and ") + (winners.length > 1 ? " tie" : " wins") + " with " + best + " points" }));
     }
-    return done;
   }
 
   function renderForm() {
     const done = editing ? state.rounds.length - 1 : state.rounds.length;
-    const over = done >= totalRounds();
+    const over = done >= ROUNDS;
     $("roundForm").hidden = over && !editing;
-    const d = doubleFor(Math.min(done, totalRounds() - 1));
+    const d = doubleFor(Math.min(done, ROUNDS - 1));
     $("engine").replaceChildren(el("span", { text: String(d) }), el("span", { text: String(d) }));
-    $("roundTitle").textContent = (editing ? "Editing round " : "Round ") + (done + 1) + " of " + totalRounds();
+    $("roundTitle").textContent = (editing ? "Editing round " : "Round ") + (done + 1) + " of " + ROUNDS;
     $("addRound").textContent = editing ? "Save round" : "Add round";
     $("cancelEdit").hidden = !editing;
 
     $("entry").replaceChildren(...state.players.map((p, i) => {
       const input = el("input", { class: "numin", id: "pips" + i, type: "number", inputmode: "numeric", min: "0", step: "1", value: draft.pips[i], "aria-label": "Pips for " + playerName(p, i) });
       input.addEventListener("input", () => { draft.pips[i] = input.value; updateNote(); });
-      return el("div", { class: "who" }, [
+      return el("div", { class: "who" + (reviews[i] ? " photo-open" : "") }, [
         el("span", { class: "name" }, [dot(p.color), playerName(p, i)]),
         el("div", { class: "row" }, [
           input,
-          el("button", { type: "button", class: "btn sm", text: "Went out", onclick: () => { draft.pips[i] = "0"; draft.dz[i] = false; render(); } })
+          el("button", { type: "button", class: "btn sm", text: "Went out", onclick: () => { draft.pips[i] = "0"; closeReview(i); } })
         ]),
-        GS.photoButton("Count from photo", (f) => readHand(i, f), "sm"),
-        reviewBox(i),
-        state.doubleZero50 ? el("label", { class: "toggle small", for: "dz" + i }, [
-          el("input", { type: "checkbox", id: "dz" + i, checked: draft.dz[i], onchange: (e) => { draft.dz[i] = e.target.checked; updateNote(); } }),
-          "Holding the double blank (+50)"
-        ]) : null
+        reviews[i] ? null : GS.photoButton("Count from photo", (f) => readHand(i, f), "sm"),
+        reviewBox(i)
       ]);
     }));
     updateNote();
@@ -256,13 +273,13 @@
     if (draft.pips.some((v) => v === "")) return { error: "Enter the pips for every player (0 for whoever went out)." };
     const pips = draft.pips.map(Number);
     if (pips.some((v) => !Number.isInteger(v) || v < 0)) return { error: "Pips must be whole numbers." };
-    return { round: { pips, dz: draft.dz.slice() } };
+    return { round: { pips } };
   }
 
   function updateNote() {
     const r = draftRound();
     $("addRound").disabled = !!r.error;
-    $("entryNote").textContent = r.error || "This round: " + state.players.map((p, i) => playerName(p, i) + " " + roundScore(r.round, i)).join(", ");
+    $("entryNote").textContent = r.error || "This round: " + state.players.map((p, i) => playerName(p, i) + " " + r.round.pips[i]).join(", ");
   }
 
   function renderSheet() {
@@ -298,17 +315,18 @@
     const r = draftRound();
     if (r.error) return;
     if (editing) state.rounds[state.rounds.length - 1] = r.round;
-    else if (state.rounds.length < totalRounds()) state.rounds.push(r.round);
+    else if (state.rounds.length < ROUNDS) state.rounds.push(r.round);
     editing = false;
-    draft = freshDraft(); reviews = {}; persist(); render();
+    Object.keys(reviews).forEach((k) => { if (reviews[k].url) URL.revokeObjectURL(reviews[k].url); });
+    reviews = {};
+    draft = freshDraft(); persist(); render();
   });
-  $("dz").addEventListener("change", (e) => { state.doubleZero50 = e.target.checked; persist(); render(); });
   $("undo").addEventListener("click", () => { state.rounds.pop(); persist(); render(); });
   $("editLast").addEventListener("click", () => {
     const last = state.rounds[state.rounds.length - 1];
     if (!last) return;
     editing = true;
-    draft = { pips: last.pips.map(String), dz: (last.dz || state.players.map(() => false)).slice() };
+    draft = { pips: last.pips.map(String) };
     render();
   });
   $("cancelEdit").addEventListener("click", () => { editing = false; draft = freshDraft(); render(); });

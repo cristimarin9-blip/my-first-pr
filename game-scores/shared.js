@@ -129,13 +129,56 @@ window.GS = (function () {
     };
   }
 
+  // When the viewer isolates frames, the game cannot touch the menu directly, so it asks by message.
+  function messageBridge() {
+    let seq = 0;
+    const waiting = {};
+    window.addEventListener("message", (e) => {
+      const d = e.data;
+      if (e.source !== window.parent || !d || d.gs !== "photo-reply" || !waiting[d.id]) return;
+      const w = waiting[d.id];
+      delete waiting[d.id];
+      if (d.ok) w.resolve(d.value); else w.reject(d.error || { code: "other" });
+    });
+    function call(kind, payload, transfer, timeout) {
+      return new Promise((resolve, reject) => {
+        const id = ++seq;
+        waiting[id] = { resolve, reject };
+        window.parent.postMessage(Object.assign({ gs: kind, id }, payload), "*", transfer || []);
+        if (timeout) setTimeout(() => { if (waiting[id]) { delete waiting[id]; reject({ code: "no_bridge" }); } }, timeout);
+      });
+    }
+    return {
+      available: () => call("photo-available", {}, [], 4000).then(Boolean, () => false),
+      ask: (prompt, buffer, type) => call("photo-ask", { prompt, buffer, type }, [buffer])
+    };
+  }
+
   let photoApi = null;
-  let photoKnown = null; // true / false once known, so redrawn buttons don't flicker
+  let photoKnown = null; // true / false once known
   function photo() {
     if (photoApi) return photoApi;
-    try {
-      if (window.parent !== window && window.parent.GS_photo) { photoApi = window.parent.GS_photo; return photoApi; }
-    } catch (e) { /* parent is not the menu */ }
+    if (window.parent !== window) {
+      try {
+        if (window.parent.GS_photo) { photoApi = window.parent.GS_photo; return photoApi; }
+      } catch (e) { /* isolated from the menu: use messages */ }
+      const bridge = messageBridge();
+      const local = makePhotoApi();
+      let via = null;
+      const pick = () => {
+        if (!via) via = bridge.available().then((ok) => (ok ? bridge : local.available().then((ok2) => (ok2 ? local : null))));
+        return via;
+      };
+      photoApi = {
+        available: async () => !!(await pick()),
+        ask: async (prompt, buffer, type) => {
+          const api = await pick();
+          if (!api) throw { code: "images_unavailable" };
+          return api.ask(prompt, buffer, type);
+        }
+      };
+      return photoApi;
+    }
     photoApi = makePhotoApi();
     return photoApi;
   }
@@ -172,18 +215,26 @@ window.GS = (function () {
     return t[(e && e.code) || "other"] || t.other;
   }
 
-  // A camera button that stays hidden until photo reading is available in this view.
-  // `onFile(file)` runs with the chosen or taken photo.
-  function photoButton(label, onFile, cls) {
-    const input = el("input", { type: "file", accept: "image/*", capture: "environment", hidden: true });
-    const btn = el("button", { type: "button", class: "btn photo-btn " + (cls || ""), hidden: photoKnown !== true, onclick: () => input.click() }, [cameraIcon(), label]);
+  const UNAVAILABLE = {
+    en: "Photo reading only works in this app on claude.ai, after you allow it to use Claude. It is not available in this view.",
+    ro: "Citirea pozelor merge doar în aplicație pe claude.ai, după ce îi permiteți să folosească Claude. Aici nu e disponibilă."
+  };
+  // A camera button. The phone offers to take a photo or pick one from the gallery.
+  // If photo reading is not available here, tapping it says so instead of failing silently.
+  function photoButton(label, onFile, cls, lang) {
+    const input = el("input", { type: "file", accept: "image/*", hidden: true });
+    const msg = el("span", { class: "small muted", hidden: true, text: UNAVAILABLE[lang || "en"] });
+    const btn = el("button", { type: "button", class: "btn photo-btn " + (cls || ""), onclick: () => {
+      if (photoKnown === false) { msg.hidden = false; return; }
+      input.click();
+    } }, [cameraIcon(), label]);
     input.addEventListener("change", () => {
       const f = input.files && input.files[0];
       input.value = "";
       if (f) onFile(f);
     });
-    if (photoKnown === null) photo().available().then((ok) => { photoKnown = ok; btn.hidden = !ok; }).catch(() => { photoKnown = false; });
-    return el("span", { class: "photo-wrap" }, [btn, input]);
+    if (photoKnown === null) photo().available().then((ok) => { photoKnown = ok; }).catch(() => { photoKnown = false; });
+    return el("span", { class: "photo-wrap" }, [btn, input, msg]);
   }
 
   function cameraIcon() {

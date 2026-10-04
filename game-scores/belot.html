@@ -850,7 +850,7 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
       return el("div", { class: "col" }, [
         el("h3", {}, [name, draft.bidder === t ? el("span", { class: "bidtag", text: "a ales cozul" }) : ""]),
         el("div", { class: "field" }, [el("span", { class: "label", text: "Puncte din cărți (fără ultima)" }), el("div", { class: "tricks" }, pointsRow)]),
-        GS.photoButton("Numără din poză", (f) => readCards(t, f)),
+        GS.photoButton("Numără din poză", (f) => readCards(t, f), "", "ro"),
         cardReview(t),
         el("div", { class: "field" }, declKids),
         el("label", { class: "penalty nocards", for: "nocards" + t }, [

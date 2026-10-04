@@ -76,6 +76,17 @@
   window.GS_photo = GS.makePhotoApi();
   let photoOk = false;
   window.GS_photo.available().then((ok) => { photoOk = ok; document.getElementById("photoNote").hidden = !ok; renderGames(); });
+  // Games in an isolated frame ask for photo reading by message.
+  window.addEventListener("message", async (e) => {
+    const d = e.data;
+    if (!d || !d.gs || e.source !== document.getElementById("gameFrame").contentWindow) return;
+    const reply = (msg) => e.source.postMessage(Object.assign({ gs: "photo-reply", id: d.id }, msg), "*");
+    if (d.gs === "photo-available") reply({ ok: true, value: await window.GS_photo.available() });
+    if (d.gs === "photo-ask") {
+      try { reply({ ok: true, value: await window.GS_photo.ask(d.prompt, d.buffer, d.type) }); }
+      catch (err) { reply({ ok: false, error: { code: (err && err.code) || "other" } }); }
+    }
+  });
 
   const view = document.getElementById("gameView");
   const frame = document.getElementById("gameFrame");
