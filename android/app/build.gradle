@@ -1,0 +1,56 @@
+plugins {
+    id "com.android.application"
+}
+
+// Every published build gets a higher versionCode (the GitHub run number), so Android
+// installs it as an update over the previous one and keeps the app's saved scores.
+def buildNumber = (System.getenv("VERSION_CODE") ?: "1").toInteger()
+
+android {
+    namespace "app.gamenightscores"
+    compileSdk 35
+
+    defaultConfig {
+        // Never change this id: a different id installs as a separate app.
+        applicationId "app.gamenightscores"
+        minSdk 26
+        targetSdk 35
+        versionCode buildNumber
+        versionName "1.${buildNumber}"
+    }
+
+    signingConfigs {
+        release {
+            // The same key must sign every version, or Android refuses the update.
+            def ks = System.getenv("KEYSTORE_FILE")
+            if (ks) {
+                storeFile file(ks)
+                storePassword System.getenv("KEYSTORE_PASSWORD")
+                keyAlias "gamenight"
+                keyPassword System.getenv("KEYSTORE_PASSWORD")
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+        }
+    }
+
+    // The app's pages are the same files as the web version in /game-scores.
+    sourceSets {
+        main.assets.srcDirs = ["${rootDir}/../game-scores"]
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    implementation "androidx.webkit:webkit:1.12.1"
+    implementation "androidx.core:core:1.13.1"
+}

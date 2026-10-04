@@ -9,3 +9,11 @@ watchlist.json
 
 # Runtime state (paper portfolio, seen-trades cache, logs)
 data/
+
+# Android build output and signing keys
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+*.jks
+*.keystore

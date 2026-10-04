@@ -118,15 +118,87 @@ window.GS = (function () {
       })().catch(() => null);
       return samplePromise;
     }
+    // On claude.ai the viewer's own Claude reads the photo; in the downloaded app, the player's API key does.
     return {
-      available: async () => !!(await getSample()),
+      available: async () => !!(await getSample()) || !!apiKey(),
       // Takes plain data (string + ArrayBuffer) so it can be called from another frame.
       ask: async (prompt, buffer, type) => {
         const s = await getSample();
-        if (!s) throw { code: "images_unavailable", message: "Photos are not available here." };
-        return s.json(prompt, { images: [new Blob([buffer], { type: type || "image/jpeg" })] });
+        if (s) return s.json(prompt, { images: [new Blob([buffer], { type: type || "image/jpeg" })] });
+        if (apiKey()) return askWithKey(prompt, buffer, type);
+        throw { code: "images_unavailable", message: "Photos are not available here." };
       }
     };
+  }
+
+  // ---------- photo reading with the player's own Anthropic API key (downloaded app) ----------
+  const API_KEY_STORE = "gs-anthropic-api-key";
+  // The official Anthropic JS SDK (MIT licence), bundled into one file so the app works without a CDN.
+  const SDK_URL = new URL("vendor/anthropic-sdk-0.131.0.mjs", document.baseURI).href;
+  function apiKey() { return (load(API_KEY_STORE, "") || "").trim(); }
+  function setApiKey(key) {
+    try { if (key) localStorage.setItem(API_KEY_STORE, JSON.stringify(key.trim())); else localStorage.removeItem(API_KEY_STORE); } catch (e) { /* ignore */ }
+  }
+  function toBase64(buffer) {
+    const bytes = new Uint8Array(buffer);
+    let bin = "";
+    for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    return btoa(bin);
+  }
+  // Pull one JSON value out of the reply: the whole text, a fenced block, or the outermost {...} / [...].
+  function parseJson(text) {
+    const tries = [text];
+    const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (fence) tries.push(fence[1]);
+    const a = text.search(/[{[]/), b = Math.max(text.lastIndexOf("}"), text.lastIndexOf("]"));
+    if (a >= 0 && b > a) tries.push(text.slice(a, b + 1));
+    for (const t of tries) { try { return JSON.parse(t); } catch (e) { /* next */ } }
+    throw { code: "invalid_json" };
+  }
+  async function askWithKey(prompt, buffer, type) {
+    let Anthropic;
+    try { Anthropic = (await import(SDK_URL)).default; }
+    catch (e) { throw { code: "offline" }; }
+    const client = new Anthropic({ apiKey: apiKey(), dangerouslyAllowBrowser: true });
+    let res;
+    try {
+      res = await client.beta.messages.create({
+        model: "claude-opus-5-5",
+        max_tokens: 16000,
+        betas: ["server-side-fallback-2026-07-01"],
+        fallbacks: "default",
+        messages: [{
+          role: "user",
+          content: [
+            { type: "image", source: { type: "base64", media_type: type || "image/jpeg", data: toBase64(buffer) } },
+            { type: "text", text: prompt + "\n\nReply with the JSON only, no other text." }
+          ]
+        }]
+      });
+    } catch (e) {
+      if (e instanceof Anthropic.AuthenticationError || e instanceof Anthropic.PermissionDeniedError) throw { code: "bad_key" };
+      if (e instanceof Anthropic.RateLimitError) throw { code: "rate_limited" };
+      if (e instanceof Anthropic.BadRequestError) throw { code: "image_rejected" };
+      if (e instanceof Anthropic.APIConnectionError) throw { code: "offline" };
+      throw { code: "other" };
+    }
+    if (res.stop_reason === "refusal") throw { code: "refused" };
+    const text = res.content.filter((b) => b.type === "text").map((b) => b.text).join("");
+    return parseJson(text);
+  }
+
+  // Phone photos are often several MB; send a ~1600px JPEG instead (the API's per-image limit is 5 MB).
+  async function shrink(file) {
+    try {
+      const bmp = await createImageBitmap(file);
+      const scale = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
+      const c = document.createElement("canvas");
+      c.width = Math.round(bmp.width * scale); c.height = Math.round(bmp.height * scale);
+      c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
+      const blob = await new Promise((r) => c.toBlob(r, "image/jpeg", 0.88));
+      if (blob) return { buffer: await blob.arrayBuffer(), type: "image/jpeg" };
+    } catch (e) { /* fall back to the original file */ }
+    return { buffer: await file.arrayBuffer(), type: file.type || "image/jpeg" };
   }
 
   // When the viewer isolates frames, the game cannot touch the menu directly, so it asks by message.
@@ -184,8 +256,8 @@ window.GS = (function () {
   }
 
   async function readPhoto(file, prompt) {
-    const buffer = await file.arrayBuffer();
-    return photo().ask(prompt, buffer, file.type);
+    const img = await shrink(file);
+    return photo().ask(prompt, img.buffer, img.type);
   }
 
   const PHOTO_ERRORS = {
@@ -197,6 +269,8 @@ window.GS = (function () {
       invalid_json: "The photo was read but the answer was unclear. Try again or enter the score by hand.",
       session_expired: "Sign in to Claude again, then retry.",
       images_unavailable: "Photo reading is not available here.",
+      bad_key: "The API key was not accepted. Check it under Photo scoring on the menu.",
+      offline: "No internet connection. Photo reading needs the internet; enter the score by hand.",
       other: "Something went wrong reading the photo. Try again or enter the score by hand."
     },
     ro: {
@@ -207,6 +281,8 @@ window.GS = (function () {
       invalid_json: "Poza a fost citită, dar răspunsul nu e clar. Încercați din nou sau scrieți punctele de mână.",
       session_expired: "Conectați-vă din nou la Claude, apoi reîncercați.",
       images_unavailable: "Citirea pozelor nu e disponibilă aici.",
+      bad_key: "Cheia API nu a fost acceptată. Verificați-o la Photo scoring, în meniu.",
+      offline: "Nu există conexiune la internet. Citirea pozelor are nevoie de internet; scrieți punctele de mână.",
       other: "Ceva n-a mers la citirea pozei. Încercați din nou sau scrieți punctele de mână."
     }
   };
@@ -216,8 +292,8 @@ window.GS = (function () {
   }
 
   const UNAVAILABLE = {
-    en: "Photo reading only works in this app on claude.ai, after you allow it to use Claude. It is not available in this view.",
-    ro: "Citirea pozelor merge doar în aplicație pe claude.ai, după ce îi permiteți să folosească Claude. Aici nu e disponibilă."
+    en: "Photo reading needs either the app on claude.ai, or an Anthropic API key added under Photo scoring on the menu.",
+    ro: "Citirea pozelor are nevoie fie de aplicația de pe claude.ai, fie de o cheie API Anthropic adăugată la Photo scoring, în meniu."
   };
   // A camera button. The phone offers to take a photo or pick one from the gallery.
   // If photo reading is not available here, tapping it says so instead of failing silently.
@@ -255,5 +331,5 @@ window.GS = (function () {
   });
 
   return { el, load, save, range, COLORS, defaultPlayers, playerName, dot, playerSetup, stepper, confirmButton,
-    makePhotoApi, photo, readPhoto, photoButton, photoError };
+    makePhotoApi, photo, readPhoto, photoButton, photoError, apiKey, setApiKey };
 })();

@@ -41,8 +41,24 @@
     <h1>Game Night Scores</h1>
     <p>Pick a game to keep score. Each game remembers its own scores on this device, so you can switch between them.</p>
   </header>
+  <div class="banner" id="updateBanner" hidden></div>
   <nav class="games" id="games" aria-label="Games"></nav>
   <p class="small muted" id="photoNote" hidden>Games with a camera button can read scores from a photo. You check the result before it is added.</p>
+
+  <details class="rules" id="keyPanel" hidden>
+    <summary>Photo scoring</summary>
+    <div class="body">
+      <p>In the downloaded app, photos are read by Claude using your own Anthropic API key. Each photo costs a few cents, billed to that key. Without a key everything else works; you enter scores by hand.</p>
+      <p class="small muted">Create a key at console.anthropic.com → API keys. It is stored only on this device.</p>
+      <div class="row">
+        <input class="text" id="apiKey" type="password" autocomplete="off" placeholder="sk-ant-…" aria-label="Anthropic API key" style="flex: 1; min-width: 12em">
+        <button class="btn primary" type="button" id="saveKey">Save</button>
+        <button class="btn danger" type="button" id="removeKey">Remove</button>
+      </div>
+      <span class="small" id="keyStatus"></span>
+    </div>
+  </details>
+  <p class="small muted" id="appVersion" hidden></p>
 </div>
 <div class="gameview" id="gameView" hidden>
   <iframe id="gameFrame" title="Game score sheet"></iframe>
@@ -74,6 +90,48 @@
 
   // Photo reading lives here, on the main page; games opened below borrow it.
   window.GS_photo = GS.makePhotoApi();
+
+  // ---------- downloaded app: API key and updates ----------
+  const inApp = !!window.GSAndroid;
+  (async () => {
+    // The key setting matters only where claude.ai's own photo reading is missing.
+    const onClaude = !!(window.claude && window.claude.use && await window.claude.use("sample").catch(() => null));
+    const panel = document.getElementById("keyPanel");
+    panel.hidden = onClaude;
+    const status = document.getElementById("keyStatus");
+    const showStatus = () => { status.textContent = GS.apiKey() ? "A key is saved. Camera buttons will read photos." : "No key saved."; };
+    showStatus();
+    document.getElementById("saveKey").addEventListener("click", () => {
+      const v = document.getElementById("apiKey").value.trim();
+      if (!v) { status.textContent = "Paste a key first."; return; }
+      GS.setApiKey(v); document.getElementById("apiKey").value = ""; showStatus(); refreshPhoto();
+    });
+    document.getElementById("removeKey").addEventListener("click", () => { GS.setApiKey(""); showStatus(); refreshPhoto(); });
+  })();
+  function refreshPhoto() {
+    window.GS_photo.available().then((ok) => { photoOk = ok; document.getElementById("photoNote").hidden = !ok; renderGames(); });
+  }
+
+  // Each published version has a higher number; installing it updates the app in place and keeps all scores.
+  const RELEASES = "https://api.github.com/repos/cristimarin9-blip/my-first-pr/releases/latest";
+  if (inApp) {
+    const current = Number(window.GSAndroid.versionCode());
+    const v = document.getElementById("appVersion");
+    v.hidden = false;
+    v.textContent = "App version 1." + current;
+    fetch(RELEASES, { headers: { Accept: "application/vnd.github+json" } }).then((r) => (r.ok ? r.json() : null)).then((rel) => {
+      const m = rel && /^app-v1\.(\d+)$/.exec(rel.tag_name || "");
+      const apk = rel && (rel.assets || []).find((a) => /\.apk$/.test(a.name));
+      if (!m || !apk || Number(m[1]) <= current) return;
+      const banner = document.getElementById("updateBanner");
+      banner.hidden = false;
+      banner.replaceChildren(
+        el("div", {}, [el("strong", { text: "Update available: version 1." + m[1] }),
+          el("div", { class: "small muted", text: "Download it and tap Install. Android updates the app and keeps your scores." })]),
+        el("button", { type: "button", class: "btn primary", text: "Download update", onclick: () => window.GSAndroid.openUrl(apk.browser_download_url) })
+      );
+    }).catch(() => { /* offline: check again next time */ });
+  }
   let photoOk = false;
   window.GS_photo.available().then((ok) => { photoOk = ok; document.getElementById("photoNote").hidden = !ok; renderGames(); });
   // Games in an isolated frame ask for photo reading by message.
@@ -96,6 +154,12 @@
     document.body.style.overflow = "hidden";
     try { history.replaceState(null, "", "#" + g.file.replace(".html", "")); } catch (e) { /* ignore */ }
   }
+  // Phone back button: close an open game first.
+  window.GS_back = function () {
+    if (view.hidden) return false;
+    window.GS_closeGame();
+    return true;
+  };
   window.GS_closeGame = function () {
     view.hidden = true;
     frame.removeAttribute("src");

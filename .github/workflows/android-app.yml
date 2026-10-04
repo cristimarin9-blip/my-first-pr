@@ -1,0 +1,76 @@
+name: Android app
+
+# Builds the Game Night Scores app from /game-scores and /android.
+# With the signing secrets set, every run publishes a release "app-v1.<run number>".
+# The run number only goes up and the same key signs every build, so each new APK
+# installs as an update over the old one and keeps the saved scores.
+on:
+  push:
+    branches: [ccr-6230ca4f-tn1qhi, main]
+    paths:
+      - "game-scores/**"
+      - "android/**"
+      - ".github/workflows/android-app.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-app-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      VERSION_CODE: ${{ github.run_number }}
+      HAS_KEY: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' && secrets.ANDROID_KEYSTORE_PASSWORD != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.11.1"
+
+      - name: Build test APK (signing secrets not set yet)
+        if: env.HAS_KEY != 'true'
+        run: |
+          echo "::warning::ANDROID_KEYSTORE_BASE64 / ANDROID_KEYSTORE_PASSWORD are not set, so no release is published. This build only checks that the app compiles; do not install it."
+          gradle -p android assembleDebug --no-daemon
+
+      - name: Upload test APK
+        if: env.HAS_KEY != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-build-do-not-install
+          path: android/app/build/outputs/apk/debug/*.apk
+
+      - name: Build signed release APK
+        if: env.HAS_KEY == 'true'
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/release.jks"
+          export KEYSTORE_FILE="$RUNNER_TEMP/release.jks"
+          gradle -p android assembleRelease --no-daemon
+          cp android/app/build/outputs/apk/release/app-release.apk "GameNightScores-1.${VERSION_CODE}.apk"
+          rm -f "$RUNNER_TEMP/release.jks"
+
+      - name: Publish release
+        if: env.HAS_KEY == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: app-v1.${{ github.run_number }}
+          name: Game Night Scores 1.${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          make_latest: "true"
+          files: GameNightScores-1.${{ github.run_number }}.apk
+          body: |
+            Download the APK below on your Android phone and open it.
+            If the app is already installed, Android shows "Update" and keeps your scores.

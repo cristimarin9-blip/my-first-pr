@@ -24,6 +24,8 @@ When the app runs as a claude.ai artifact, the camera buttons let you take a pho
 | Catan | The board | Settlements and cities per colour |
 | Ticket to Ride | A player's destination tickets | Cities and points; the player marks each completed or not |
 
+In the Android app, where claude.ai is not available, photos are read with the player's own Anthropic API key (Photo scoring on the menu) using the bundled official JS SDK in `vendor/`.
+
 The `sample` capability only exists on the artifact's main page, so `index.html` opens each game in a frame and lends it photo reading, directly (`window.GS_photo`) or by `postMessage` when the viewer isolates the frame. Opened on its own, a game works the same and the camera button explains that photos are not available there.
 
 ## Adding a game
@@ -31,3 +33,7 @@ The `sample` capability only exists on the artifact's main page, so `index.html`
 1. Copy one of the game pages, for example `mexican-train.html`, and keep the `← All games` link, `shared.css` and `shared.js`.
 2. Give it its own storage key (`gs-<game>-v1`).
 3. Add an entry to the `GAMES` list in `index.html` with the page, name, short description and storage key.
+
+## Android app
+
+The same pages are packaged as an Android app in `../android` and published as GitHub releases. New releases install as updates and keep the scores. See `../android/README.md`.
