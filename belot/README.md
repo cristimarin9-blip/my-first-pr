@@ -12,7 +12,8 @@ Ce urmărește:
 - Punctele din cărți (162 cu ultima mână) transformate în bile: 10 = 1, 35 = 3, 66 = 7.
 - Combinațiile, cu desenul cărților: terț 20, jumate de sută 50, o sută 100, patru de 10/D/K/A 100, patru de nouă 150, patru de valet 200, bela 20.
 - BT pentru cel care a ales cozul și a luat mai puțin: punctele lui se împart între ceilalți, el păstrează doar bela. La fiecare al treilea BT, −10.
-- −10 bile pentru jucătorul care nu a luat nicio carte.
+- −10 bile pentru jucătorul care nu a luat nicio carte; combinațiile lui nu se mai socotesc (bela rămâne).
+- Încălcare de regulă: −10 bile, runda se reia (se scrie ca rundă separată).
 - Cazuri speciale: patru de opt (anulează combinațiile, în afară de bela), patru de șapte (runda se anulează), combinația BELOT (câștig instant).
 - Combinații reduse (opțional): cel mult două combinații de 100+ pe joc, cu excepția combinației duble.
 - Jocul până la 51 sau 101 bile; dacă mai mulți trec de limită, limita crește cu 50.
