@@ -1,0 +1,392 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Carcassonne Scores</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Young+Serif&family=Figtree:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="shared.css">
+<style>
+/* Layout: setup with expansion switches, the score track, a feature calculator, extra expansion scoring, then the log. */
+:root { --accent: #3a6f2f; --accent-soft: #e2eedb; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --accent: #8fcf7f; --accent-soft: #1d2f19; } }
+:root[data-theme="dark"] { --accent: #8fcf7f; --accent-soft: #1d2f19; }
+.exps { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 6px 14px; }
+.exps label { font-size: .88rem; }
+.track { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+.track .player { border-top: 0; border-left: 1px solid var(--line); }
+.track .player:first-child { border-left: 0; }
+.track .name { display: flex; gap: 6px; align-items: center; font-weight: 600; color: var(--muted); overflow-wrap: anywhere; }
+.calc-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+.calc-grid .field > .row { min-height: 40px; }
+.result { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 12px; border-radius: 8px; background: var(--accent-soft); }
+.result .big { font-family: var(--font-display); font-size: 1.6rem; color: var(--accent); font-variant-numeric: tabular-nums; }
+.extra { display: grid; gap: 10px; padding: 12px; border: 1px dashed var(--line); border-radius: 8px; }
+.extra h3 { font-size: .98rem; }
+.goods { display: grid; grid-template-columns: auto repeat(3, auto); gap: 6px 10px; align-items: center; justify-content: start; }
+.log-label { font-size: .88rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="top-left">
+      <a class="back" href="index.html">← All games</a>
+      <h1>Carcassonne</h1>
+    </div>
+    <span id="newGame"></span>
+  </header>
+
+  <section class="panel" aria-label="Setup">
+    <div id="players" class="field"></div>
+    <div class="field">
+      <span class="label">Expansions in play</span>
+      <div class="exps" id="exps"></div>
+      <span class="small muted">River, Builders, big meeples, the Mayor and the Wagon change who wins a feature, not its points. Score them with the calculator as usual.</span>
+    </div>
+  </section>
+
+  <section class="board track" id="track" aria-label="Scores"></section>
+
+  <section class="panel" aria-labelledby="calcTitle">
+    <div class="panel-head"><h2 id="calcTitle">Score a feature</h2><span class="label">Majority wins, ties all score</span></div>
+    <div class="field"><span class="label">Feature</span><div class="seg" id="typeSeg"></div></div>
+    <div class="field" id="whenField"><span class="label">When</span><div class="seg" id="whenSeg"></div></div>
+    <div class="calc-grid" id="calcInputs"></div>
+    <div class="field"><span class="label">Who scores it</span><div class="seg" id="whoSeg"></div></div>
+    <div class="field" id="fairyField" hidden><span class="label">Fairy next to a scoring meeple (+3)</span><div class="seg" id="fairySeg"></div></div>
+    <div class="result"><span id="calcText"></span><span class="big" id="calcPts">0</span></div>
+    <div class="row" style="justify-content: flex-end"><button class="btn primary" type="button" id="scoreBtn">Add to scores</button></div>
+  </section>
+
+  <section class="panel" aria-labelledby="moreTitle">
+    <h2 id="moreTitle">More scoring</h2>
+    <div id="more" class="field"></div>
+  </section>
+
+  <section class="panel" aria-labelledby="logTitle">
+    <div class="panel-head"><h2 id="logTitle">Score log</h2><button class="btn sm" type="button" id="undo">Undo last</button></div>
+    <div class="ledger"><table><thead><tr id="headRow"></tr></thead><tbody id="rows"></tbody></table></div>
+  </section>
+
+  <details class="rules">
+    <summary>Scoring rules</summary>
+    <div class="body">
+      <dl>
+        <dt>Road, completed or at the end</dt><dd>1 per tile</dd>
+        <dt>City, completed</dt><dd>2 per tile and pennant</dd>
+        <dt>City, unfinished at the end</dt><dd>1 per tile and pennant</dd>
+        <dt>Monastery, completed (9 tiles)</dt><dd>9</dd>
+        <dt>Monastery, unfinished at the end</dt><dd>1 per tile</dd>
+        <dt>Field, at the end</dt><dd>3 per completed city</dd>
+      </dl>
+      <p>Points use the current (second) edition rules: a completed two-tile city is worth 4.</p>
+      <p><b>Inns &amp; Cathedrals:</b> a road with an inn scores 2 per tile when completed and nothing if unfinished. A city with a cathedral scores 3 per tile and pennant when completed and nothing if unfinished.</p>
+      <p><b>Traders &amp; Builders:</b> a pig in your field adds 1 per city (4 instead of 3). At the end, whoever has the most of each trade good (wine, grain, cloth) scores 10 for it; ties all score 10.</p>
+      <p><b>The Princess &amp; the Dragon:</b> the fairy's owner scores 1 at the start of their turn and 3 when the meeple next to the fairy scores.</p>
+      <p><b>The Tower:</b> buying back a captured meeple costs 3 points, paid to the player who holds it.</p>
+      <p><b>Abbey &amp; Mayor:</b> an abbey scores like a monastery. Fields with a barn score 4 per completed city at the end. When a barn joins a field with farmers, those farmers score 3 per city at once; farmers who later join a barn field score 1 per city.</p>
+      <p><b>King &amp; Robber:</b> at the end the King scores 1 per completed city in the game and the Robber Baron 1 per completed road.</p>
+      <p><b>Hills &amp; Sheep:</b> a completed monastery scores 3 more for each vineyard around it. A shepherd scores the total of the sheep in the flock. Hills only break ties.</p>
+      <p><b>Bridges, Castles &amp; Bazaars:</b> a castle scores the points of the first feature completed next to it. Bazaar bids are paid in points: use Other points with a minus sign.</p>
+      <p>Anything else (more expansions, house rules) can be added with Other points.</p>
+    </div>
+  </details>
+</div>
+<script src="shared.js"></script>
+<script>
+(function () {
+  "use strict";
+  const { el, load, save, range, playerName, dot, stepper } = GS;
+  const KEY = "gs-carcassonne-v1";
+  const $ = (id) => document.getElementById(id);
+
+  const EXPANSIONS = {
+    ic: "Inns & Cathedrals", tb: "Traders & Builders", pd: "The Princess & the Dragon", tower: "The Tower",
+    am: "Abbey & Mayor", kr: "King & Robber", hs: "Hills & Sheep", bcb: "Bridges, Castles & Bazaars"
+  };
+
+  let state = load(KEY, null) || { players: GS.defaultPlayers(4), exp: {}, log: [] };
+  const persist = () => save(KEY, state);
+  const on = (k) => !!state.exp[k];
+
+  function freshCalc() {
+    return { type: "city", when: "done", tiles: 3, pennants: 0, inn: false, cathedral: false, around: 9, vineyards: 0, cities: 1, perCity: 3, castle: 0, who: [], fairy: null };
+  }
+  let calc = freshCalc();
+  let other = { who: null, pts: "", note: "" };
+  let tower = { payer: null, to: null };
+  let goods = state.players.map(() => [0, 0, 0]);
+  let kr = { king: null, cities: 0, robber: null, roads: 0 };
+  let sheep = { total: 0, who: [] };
+
+  const n = () => state.players.length;
+  const name = (i) => playerName(state.players[i], i);
+  const totals = () => range(n()).map((i) => state.log.reduce((s, e) => s + (e.pts[i] || 0), 0));
+
+  function add(pts, label) { state.log.push({ pts, label }); persist(); render(); }
+  function forPlayers(list, value) { return range(n()).map((i) => (list.includes(i) ? value : 0)); }
+
+  // ---------- feature calculator ----------
+
+  function calcPoints() {
+    const c = calc;
+    if (c.type === "road") {
+      if (c.when === "done") return { pts: c.tiles * (c.inn ? 2 : 1), text: c.tiles + " tiles × " + (c.inn ? "2 (inn)" : "1") };
+      return { pts: c.inn ? 0 : c.tiles, text: c.inn ? "Unfinished road with an inn scores 0" : c.tiles + " tiles × 1" };
+    }
+    if (c.type === "city") {
+      const units = c.tiles + c.pennants;
+      const unitText = c.tiles + " tiles + " + c.pennants + " pennants";
+      if (c.when === "done") return { pts: units * (c.cathedral ? 3 : 2), text: unitText + " × " + (c.cathedral ? "3 (cathedral)" : "2") };
+      return { pts: c.cathedral ? 0 : units, text: c.cathedral ? "Unfinished city with a cathedral scores 0" : unitText + " × 1" };
+    }
+    if (c.type === "monastery") {
+      if (c.when === "done") return { pts: 9 + c.vineyards * 3, text: "Completed: 9" + (c.vineyards ? " + " + c.vineyards + " vineyards × 3" : "") };
+      return { pts: c.around, text: c.around + " tiles (itself and its neighbours) × 1" };
+    }
+    if (c.type === "field") return { pts: c.cities * c.perCity, text: c.cities + " completed cities × " + c.perCity };
+    return { pts: c.castle, text: "Points of the feature completed next to the castle" };
+  }
+
+  function calcLabel() {
+    const c = calc;
+    const when = c.when === "done" ? "completed" : "at the end";
+    if (c.type === "road") return "Road, " + c.tiles + " tiles" + (c.inn ? ", inn" : "") + ", " + when;
+    if (c.type === "city") return "City, " + c.tiles + " tiles, " + c.pennants + " pennants" + (c.cathedral ? ", cathedral" : "") + ", " + when;
+    if (c.type === "monastery") return c.when === "done" ? "Monastery completed" + (c.vineyards ? ", " + c.vineyards + " vineyards" : "") : "Monastery, " + c.around + " tiles, at the end";
+    if (c.type === "field") return "Field, " + c.cities + " cities × " + c.perCity;
+    return "Castle";
+  }
+
+  function renderCalc() {
+    const types = [["road", "Road"], ["city", "City"], ["monastery", on("am") ? "Monastery / Abbey" : "Monastery"], ["field", "Field"]];
+    if (on("bcb")) types.push(["castle", "Castle"]);
+    if (!types.some((t) => t[0] === calc.type)) calc.type = "city";
+    $("typeSeg").replaceChildren(...types.map(([k, label]) => el("button", {
+      type: "button", class: "chip", "aria-pressed": String(calc.type === k),
+      onclick: () => { calc.type = k; if (k === "field") calc.when = "end"; renderCalc(); }
+    }, [label])));
+
+    const timed = calc.type === "road" || calc.type === "city" || calc.type === "monastery";
+    $("whenField").hidden = !timed;
+    $("whenSeg").replaceChildren(...[["done", "Completed during the game"], ["end", "Unfinished, end of game"]].map(([k, label]) => el("button", {
+      type: "button", class: "chip", "aria-pressed": String(calc.when === k), onclick: () => { calc.when = k; renderCalc(); }
+    }, [label])));
+
+    const set = (k) => (v) => { calc[k] = v; renderCalc(); };
+    const fields = [];
+    const num = (label, k, min, max) => el("div", { class: "field" }, [el("span", { class: "label", text: label }), el("div", { class: "row" }, [stepper(calc[k], set(k), { min, max, label })])]);
+    const toggle = (label, k) => el("label", { class: "toggle", for: "c-" + k }, [el("input", { type: "checkbox", id: "c-" + k, checked: calc[k], onchange: (e) => { calc[k] = e.target.checked; renderCalc(); } }), label]);
+    if (calc.type === "road") {
+      fields.push(num("Tiles", "tiles", 1, 60));
+      if (on("ic")) fields.push(el("div", { class: "field" }, [el("span", { class: "label", text: "Inns & Cathedrals" }), el("div", { class: "row" }, [toggle("Inn on this road", "inn")])]));
+    }
+    if (calc.type === "city") {
+      fields.push(num("Tiles", "tiles", 1, 60), num("Pennants", "pennants", 0, 20));
+      if (on("ic")) fields.push(el("div", { class: "field" }, [el("span", { class: "label", text: "Inns & Cathedrals" }), el("div", { class: "row" }, [toggle("Cathedral in this city", "cathedral")])]));
+    }
+    if (calc.type === "monastery") {
+      if (calc.when === "end") fields.push(num("Tiles (itself + neighbours)", "around", 1, 8));
+      else if (on("hs")) fields.push(num("Vineyards around it", "vineyards", 0, 8));
+    }
+    if (calc.type === "field") {
+      fields.push(num("Completed cities", "cities", 0, 40));
+      const opts = [[3, "Farmers · 3"]];
+      if (on("tb")) opts.push([4, "With your pig · 4"]);
+      if (on("am")) opts.push([4.1, "Barn · 4"], [1, "Farmers joining a barn · 1"]);
+      fields.push(el("div", { class: "field" }, [el("span", { class: "label", text: "Points per city" }), el("div", { class: "seg" }, opts.map(([v, label]) => el("button", {
+        type: "button", class: "chip", "aria-pressed": String(calc.perCityKey === v || (!calc.perCityKey && v === 3)),
+        onclick: () => { calc.perCityKey = v; calc.perCity = Math.floor(v); renderCalc(); }
+      }, [label])))]));
+    }
+    if (calc.type === "castle") {
+      const input = el("input", { class: "numin", id: "castlePts", type: "number", min: "0", value: calc.castle || "", "aria-label": "Castle points" });
+      input.addEventListener("input", () => { calc.castle = Math.max(0, Number(input.value) || 0); updateResult(); });
+      fields.push(el("div", { class: "field" }, [el("span", { class: "label", text: "Points of the nearby feature" }), input]));
+    }
+    $("calcInputs").replaceChildren(...fields);
+
+    calc.who = calc.who.filter((i) => i < n());
+    $("whoSeg").replaceChildren(...range(n()).map((i) => el("button", {
+      type: "button", class: "chip", "aria-pressed": String(calc.who.includes(i)),
+      onclick: () => { calc.who = calc.who.includes(i) ? calc.who.filter((x) => x !== i) : calc.who.concat(i); renderCalc(); }
+    }, [dot(state.players[i].color), name(i)])));
+
+    $("fairyField").hidden = !on("pd");
+    $("fairySeg").replaceChildren(
+      el("button", { type: "button", class: "chip", "aria-pressed": String(calc.fairy === null), onclick: () => { calc.fairy = null; renderCalc(); } }, ["No fairy"]),
+      ...range(n()).map((i) => el("button", {
+        type: "button", class: "chip", "aria-pressed": String(calc.fairy === i), onclick: () => { calc.fairy = i; renderCalc(); }
+      }, [dot(state.players[i].color), name(i)]))
+    );
+    updateResult();
+  }
+
+  function updateResult() {
+    const r = calcPoints();
+    $("calcPts").textContent = r.pts + (calc.who.length > 1 ? " each" : "");
+    $("calcText").textContent = r.text + (calc.fairy !== null && on("pd") ? " · fairy +3 to " + name(calc.fairy) : "");
+    $("scoreBtn").disabled = !calc.who.length && calc.fairy === null;
+  }
+
+  $("scoreBtn").addEventListener("click", () => {
+    const r = calcPoints();
+    const pts = forPlayers(calc.who, r.pts);
+    let label = calcLabel();
+    if (calc.fairy !== null && on("pd")) { pts[calc.fairy] += 3; label += ", fairy"; }
+    const keep = { type: calc.type, when: calc.when };
+    calc = Object.assign(freshCalc(), keep);
+    add(pts, label);
+  });
+
+  // ---------- more scoring ----------
+
+  function playerChips(selected, onPick, multi) {
+    return el("div", { class: "seg" }, range(n()).map((i) => el("button", {
+      type: "button", class: "chip",
+      "aria-pressed": String(multi ? selected.includes(i) : selected === i),
+      onclick: () => onPick(i)
+    }, [dot(state.players[i].color), name(i)])));
+  }
+
+  function renderMore() {
+    const blocks = [];
+
+    // Other points
+    const ptsInput = el("input", { class: "numin", id: "otherPts", type: "number", placeholder: "±", value: other.pts, "aria-label": "Points" });
+    ptsInput.addEventListener("input", () => { other.pts = ptsInput.value; });
+    const noteInput = el("input", { class: "text", id: "otherNote", maxlength: "40", placeholder: "What for (optional)", value: other.note, "aria-label": "Note" });
+    noteInput.addEventListener("input", () => { other.note = noteInput.value; });
+    blocks.push(el("div", { class: "extra" }, [
+      el("h3", { text: "Other points" }),
+      playerChips(other.who, (i) => { other.who = i; renderMore(); }),
+      el("div", { class: "row" }, [ptsInput, el("div", { style: { flex: "1", minWidth: "10em" } }, [noteInput]),
+        el("button", { type: "button", class: "btn", text: "Add", onclick: () => {
+          const v = Number(other.pts);
+          if (other.who === null || !Number.isFinite(v) || !v) return;
+          const label = other.note.trim() || "Other points";
+          const who = other.who;
+          other = { who: null, pts: "", note: "" };
+          add(forPlayers([who], v), label);
+        } })])
+    ]));
+
+    if (on("pd")) blocks.push(el("div", { class: "extra" }, [
+      el("h3", { text: "Fairy at the start of a turn (+1)" }),
+      el("div", { class: "seg" }, range(n()).map((i) => el("button", { type: "button", class: "chip", onclick: () => add(forPlayers([i], 1), "Fairy, start of turn") }, [dot(state.players[i].color), name(i), " +1"])))
+    ]));
+
+    if (on("tower")) blocks.push(el("div", { class: "extra" }, [
+      el("h3", { text: "Tower ransom (3 points)" }),
+      el("span", { class: "small muted", text: "Who pays" }), playerChips(tower.payer, (i) => { tower.payer = i; renderMore(); }),
+      el("span", { class: "small muted", text: "Paid to" }), playerChips(tower.to, (i) => { tower.to = i; renderMore(); }),
+      el("div", {}, [el("button", { type: "button", class: "btn", text: "Pay ransom", disabled: tower.payer === null || tower.to === null || tower.payer === tower.to,
+        onclick: () => { const pts = range(n()).map(() => 0); pts[tower.payer] = -3; pts[tower.to] = 3; tower = { payer: null, to: null }; add(pts, "Tower ransom"); } })])
+    ]));
+
+    if (on("tb")) {
+      while (goods.length < n()) goods.push([0, 0, 0]);
+      const rows = [el("span"), ...["Wine", "Grain", "Cloth"].map((g) => el("span", { class: "label", text: g }))];
+      range(n()).forEach((i) => {
+        rows.push(el("span", { class: "row" }, [dot(state.players[i].color), name(i)]));
+        [0, 1, 2].forEach((g) => rows.push(stepper(goods[i][g], (v) => { goods[i][g] = v; renderMore(); }, { label: name(i) + " goods" })));
+      });
+      blocks.push(el("div", { class: "extra" }, [
+        el("h3", { text: "Trade goods (end of game)" }),
+        el("div", { class: "ledger" }, [el("div", { class: "goods" }, rows)]),
+        el("div", {}, [el("button", { type: "button", class: "btn", text: "Score trade goods", onclick: () => {
+          const pts = range(n()).map(() => 0);
+          [0, 1, 2].forEach((g) => {
+            const best = Math.max(...range(n()).map((i) => goods[i][g]));
+            if (best > 0) range(n()).forEach((i) => { if (goods[i][g] === best) pts[i] += 10; });
+          });
+          add(pts, "Trade goods majorities");
+        } })])
+      ]));
+    }
+
+    if (on("kr")) blocks.push(el("div", { class: "extra" }, [
+      el("h3", { text: "King & Robber Baron (end of game)" }),
+      el("span", { class: "small muted", text: "King: largest completed city" }), playerChips(kr.king, (i) => { kr.king = kr.king === i ? null : i; renderMore(); }),
+      el("div", { class: "row" }, [el("span", { text: "Completed cities in the game" }), stepper(kr.cities, (v) => { kr.cities = v; renderMore(); }, { label: "completed cities" })]),
+      el("span", { class: "small muted", text: "Robber Baron: longest completed road" }), playerChips(kr.robber, (i) => { kr.robber = kr.robber === i ? null : i; renderMore(); }),
+      el("div", { class: "row" }, [el("span", { text: "Completed roads in the game" }), stepper(kr.roads, (v) => { kr.roads = v; renderMore(); }, { label: "completed roads" })]),
+      el("div", {}, [el("button", { type: "button", class: "btn", text: "Score King & Robber", disabled: kr.king === null && kr.robber === null, onclick: () => {
+        const pts = range(n()).map(() => 0);
+        if (kr.king !== null) pts[kr.king] += kr.cities;
+        if (kr.robber !== null) pts[kr.robber] += kr.roads;
+        add(pts, "King " + kr.cities + " cities, Robber " + kr.roads + " roads");
+      } })])
+    ]));
+
+    if (on("hs")) blocks.push(el("div", { class: "extra" }, [
+      el("h3", { text: "Shepherd brings in the flock" }),
+      el("div", { class: "row" }, [el("span", { text: "Sheep in the flock" }), stepper(sheep.total, (v) => { sheep.total = v; renderMore(); }, { label: "sheep", max: 40 })]),
+      playerChips(sheep.who, (i) => { sheep.who = sheep.who.includes(i) ? sheep.who.filter((x) => x !== i) : sheep.who.concat(i); renderMore(); }, true),
+      el("div", {}, [el("button", { type: "button", class: "btn", text: "Score the flock", disabled: !sheep.who.length || !sheep.total,
+        onclick: () => { const pts = forPlayers(sheep.who, sheep.total); const t = sheep.total; sheep = { total: 0, who: [] }; add(pts, "Flock of " + t + " sheep"); } })])
+    ]));
+
+    $("more").replaceChildren(...blocks);
+  }
+
+  // ---------- board and log ----------
+
+  const setup = GS.playerSetup($("players"), {
+    id: "cc", min: 2, max: 6,
+    onCount: (c) => {
+      while (state.players.length < c) state.players.push({ name: "", color: state.players.length % GS.COLORS.length });
+      state.players.length = c;
+      persist(); render();
+    },
+    onName: () => { persist(); render(); }
+  });
+
+  function renderTrack() {
+    const t = totals();
+    const best = Math.max(...t);
+    $("track").replaceChildren(...range(n()).map((i) => el("div", { class: "player" + (t[i] === best && best > 0 ? " lead" : "") }, [
+      el("span", { class: "name" }, [dot(state.players[i].color), name(i)]),
+      el("span", { class: "total num", text: String(t[i]) }),
+      el("span", { class: "small muted", text: t[i] >= 50 ? "space " + (t[i] % 50) + ", lap " + (Math.floor(t[i] / 50) + 1) : "on the track" })
+    ])));
+  }
+
+  function renderLog() {
+    $("headRow").replaceChildren(el("th", { text: "Scored" }), ...range(n()).map((i) => el("th", { class: "n", text: name(i) })), el("th", { class: "del" }, [el("span", { class: "sr", text: "Delete" })]));
+    if (!state.log.length) {
+      $("rows").replaceChildren(el("tr", {}, [el("td", { class: "empty", colspan: String(n() + 2), text: "Nothing scored yet. Use the calculator above when a feature is completed." })]));
+    } else {
+      $("rows").replaceChildren(...state.log.map((e, k) => el("tr", {}, [
+        el("td", { class: "log-label", text: e.label }),
+        ...range(n()).map((i) => el("td", { class: "n", text: e.pts[i] ? (e.pts[i] > 0 ? "+" : "") + e.pts[i] : "" })),
+        el("td", { class: "del" }, [el("button", { type: "button", text: "×", "aria-label": "Delete " + e.label, onclick: () => { state.log.splice(k, 1); persist(); render(); } })])
+      ])).reverse());
+    }
+    $("undo").disabled = !state.log.length;
+  }
+
+  function render() {
+    setup(state.players, state.log.length > 0);
+    $("exps").replaceChildren(...Object.keys(EXPANSIONS).map((k) => el("label", { class: "toggle", for: "exp-" + k }, [
+      el("input", { type: "checkbox", id: "exp-" + k, checked: on(k), onchange: (e) => { state.exp[k] = e.target.checked; persist(); render(); } }),
+      EXPANSIONS[k]
+    ])));
+    $("newGame").replaceChildren(GS.confirmButton("New game", "Clear all scores?", () => {
+      state.log = []; goods = state.players.map(() => [0, 0, 0]); persist(); render();
+    }));
+    renderTrack();
+    renderCalc();
+    renderMore();
+    renderLog();
+  }
+
+  $("undo").addEventListener("click", () => { state.log.pop(); persist(); render(); });
+  render();
+})();
+</script>
+</body>
+</html>

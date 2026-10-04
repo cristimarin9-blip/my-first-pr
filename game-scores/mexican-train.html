@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mexican Train Scores</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Young+Serif&family=Figtree:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="shared.css">
+<style>
+/* Layout: setup, standings (lowest first), the round entry with the engine double, then the round-by-round sheet. */
+:root { --accent: #b14d16; --accent-soft: #f6e4d8; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --accent: #ee9a62; --accent-soft: #3a2416; } }
+:root[data-theme="dark"] { --accent: #ee9a62; --accent-soft: #3a2416; }
+.engine { display: flex; align-items: center; gap: 12px; }
+.domino {
+  display: inline-grid; grid-template-columns: 1fr 1fr; width: 64px; height: 34px; border-radius: 6px;
+  border: 1px solid var(--line); background: var(--paper); font-weight: 700; font-variant-numeric: tabular-nums;
+}
+.domino span { display: grid; place-items: center; }
+.domino span + span { border-left: 1px solid var(--line); }
+.entry { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
+.entry .who { display: grid; gap: 6px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; min-width: 0; }
+.entry .who .name { font-weight: 700; display: flex; gap: 6px; align-items: center; overflow-wrap: anywhere; }
+.standings .player { grid-template-columns: auto 1fr auto; align-items: center; gap: 4px 12px; }
+.standings .rank { font-family: var(--font-display); font-size: 1.2rem; color: var(--muted); width: 1.5em; }
+.standings .total { font-size: 1.8rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="top-left">
+      <a class="back" href="index.html">← All games</a>
+      <h1>Mexican Train</h1>
+    </div>
+    <span id="newGame"></span>
+  </header>
+
+  <section class="panel" aria-label="Setup">
+    <div class="row">
+      <span class="label">Domino set</span>
+      <div class="seg" id="setSeg"></div>
+    </div>
+    <div id="players" class="field"></div>
+    <label class="toggle" for="dz"><input type="checkbox" id="dz"> Double blank left in hand counts 50</label>
+    <span class="small muted" id="setupNote"></span>
+  </section>
+
+  <div id="banner" class="banner" hidden></div>
+
+  <section class="board standings" id="standings" aria-label="Standings"></section>
+
+  <form class="panel" id="roundForm" autocomplete="off">
+    <div class="panel-head">
+      <div class="engine"><span class="domino" id="engine"></span><h2 id="roundTitle">Round 1</h2></div>
+      <span class="label">Pips left in each hand</span>
+    </div>
+    <div class="entry" id="entry"></div>
+    <div class="row" style="justify-content: space-between">
+      <span class="small muted" id="entryNote"></span>
+      <div class="row">
+        <button class="btn" type="button" id="cancelEdit" hidden>Cancel edit</button>
+        <button class="btn primary" type="submit" id="addRound">Add round</button>
+      </div>
+    </div>
+  </form>
+
+  <section class="panel" aria-labelledby="sheetTitle">
+    <div class="panel-head">
+      <h2 id="sheetTitle">Score sheet</h2>
+      <div class="row">
+        <button class="btn sm" type="button" id="editLast">Edit last round</button>
+        <button class="btn sm" type="button" id="undo">Delete last round</button>
+      </div>
+    </div>
+    <div class="ledger"><table><thead><tr id="headRow"></tr></thead><tbody id="rows"></tbody></table></div>
+  </section>
+
+  <details class="rules">
+    <summary>Scoring rules</summary>
+    <div class="body">
+      <p>A game has one round per double, starting with the highest (double-12 for a double-12 set) and ending with the double blank. Double-9 sets play 10 rounds, double-12 sets 13 and double-15 sets 16.</p>
+      <p>When a player plays their last domino the round ends. Everyone else counts the pips on the dominoes left in their hand and adds them to their score. The player who went out scores 0.</p>
+      <p>If the round is blocked, everyone counts their pips.</p>
+      <p>Many tables count the double blank as 50 points when it is left in a hand. Turn this on in the setup if you play that way.</p>
+      <p>After the last round the player with the lowest total wins.</p>
+    </div>
+  </details>
+</div>
+<script src="shared.js"></script>
+<script>
+(function () {
+  "use strict";
+  const { el, load, save, range, playerName, dot } = GS;
+  const KEY = "gs-mexican-train-v1";
+  const $ = (id) => document.getElementById(id);
+
+  let state = load(KEY, null) || { set: 12, players: GS.defaultPlayers(4), rounds: [], doubleZero50: false };
+  let draft = null, editing = false;
+
+  const totalRounds = () => state.set + 1;
+  const doubleFor = (i) => state.set - i;
+  const persist = () => save(KEY, state);
+
+  function freshDraft() {
+    return { pips: state.players.map(() => ""), dz: state.players.map(() => false) };
+  }
+  draft = freshDraft();
+
+  function roundScore(r, i) { return r.pips[i] + (r.dz && r.dz[i] && state.doubleZero50 ? 50 : 0); }
+  function totals(rounds) {
+    return state.players.map((_, i) => rounds.reduce((s, r) => s + roundScore(r, i), 0));
+  }
+
+  const setup = GS.playerSetup($("players"), {
+    id: "mt", min: 2, max: 8,
+    onCount: (c) => {
+      while (state.players.length < c) state.players.push({ name: "", color: state.players.length % GS.COLORS.length });
+      state.players.length = c;
+      draft = freshDraft(); persist(); render();
+    },
+    onName: () => { persist(); render(); }
+  });
+
+  function renderSetup() {
+    const locked = state.rounds.length > 0;
+    $("setSeg").replaceChildren(...[9, 12, 15].map((n) => el("button", {
+      type: "button", class: "chip", "aria-pressed": String(state.set === n), disabled: locked,
+      onclick: () => { state.set = n; persist(); render(); }
+    }, ["Double-" + n])));
+    setup(state.players, locked);
+    $("dz").checked = state.doubleZero50;
+    $("setupNote").textContent = locked ? "Start a new game to change the set or the number of players." : "";
+    $("newGame").replaceChildren(GS.confirmButton("New game", "Clear all rounds?", () => {
+      state.rounds = []; editing = false; draft = freshDraft(); persist(); render();
+    }));
+  }
+
+  function renderStandings() {
+    const done = editing ? state.rounds.slice(0, -1) : state.rounds;
+    const t = totals(state.rounds);
+    const order = range(state.players.length).sort((a, b) => t[a] - t[b]);
+    const best = t[order[0]];
+    $("standings").replaceChildren(...order.map((i, rank) => el("div", { class: "player" + (t[i] === best && state.rounds.length ? " lead" : "") }, [
+      el("span", { class: "rank", text: String(rank + 1) }),
+      el("div", {}, [el("div", { class: "row" }, [dot(state.players[i].color), el("b", { text: playerName(state.players[i], i) })]),
+        el("span", { class: "small muted", text: state.rounds.length ? "after " + state.rounds.length + " of " + totalRounds() + " rounds" : "no rounds yet" })]),
+      el("span", { class: "total num", text: String(t[i]) })
+    ])));
+    const over = state.rounds.length >= totalRounds();
+    const banner = $("banner");
+    banner.hidden = !over;
+    if (over) {
+      const winners = order.filter((i) => t[i] === best).map((i) => playerName(state.players[i], i));
+      banner.replaceChildren(el("strong", { text: winners.join(" and ") + (winners.length > 1 ? " tie" : " wins") + " with " + best + " points" }));
+    }
+    return done;
+  }
+
+  function renderForm() {
+    const done = editing ? state.rounds.length - 1 : state.rounds.length;
+    const over = done >= totalRounds();
+    $("roundForm").hidden = over && !editing;
+    const d = doubleFor(Math.min(done, totalRounds() - 1));
+    $("engine").replaceChildren(el("span", { text: String(d) }), el("span", { text: String(d) }));
+    $("roundTitle").textContent = (editing ? "Editing round " : "Round ") + (done + 1) + " of " + totalRounds();
+    $("addRound").textContent = editing ? "Save round" : "Add round";
+    $("cancelEdit").hidden = !editing;
+
+    $("entry").replaceChildren(...state.players.map((p, i) => {
+      const input = el("input", { class: "numin", id: "pips" + i, type: "number", inputmode: "numeric", min: "0", step: "1", value: draft.pips[i], "aria-label": "Pips for " + playerName(p, i) });
+      input.addEventListener("input", () => { draft.pips[i] = input.value; updateNote(); });
+      return el("div", { class: "who" }, [
+        el("span", { class: "name" }, [dot(p.color), playerName(p, i)]),
+        el("div", { class: "row" }, [
+          input,
+          el("button", { type: "button", class: "btn sm", text: "Went out", onclick: () => { draft.pips[i] = "0"; draft.dz[i] = false; render(); } })
+        ]),
+        state.doubleZero50 ? el("label", { class: "toggle small", for: "dz" + i }, [
+          el("input", { type: "checkbox", id: "dz" + i, checked: draft.dz[i], onchange: (e) => { draft.dz[i] = e.target.checked; updateNote(); } }),
+          "Holding the double blank (+50)"
+        ]) : null
+      ]);
+    }));
+    updateNote();
+  }
+
+  function draftRound() {
+    if (draft.pips.some((v) => v === "")) return { error: "Enter the pips for every player (0 for whoever went out)." };
+    const pips = draft.pips.map(Number);
+    if (pips.some((v) => !Number.isInteger(v) || v < 0)) return { error: "Pips must be whole numbers." };
+    return { round: { pips, dz: draft.dz.slice() } };
+  }
+
+  function updateNote() {
+    const r = draftRound();
+    $("addRound").disabled = !!r.error;
+    $("entryNote").textContent = r.error || "This round: " + state.players.map((p, i) => playerName(p, i) + " " + roundScore(r.round, i)).join(", ");
+  }
+
+  function renderSheet() {
+    $("headRow").replaceChildren(el("th", { text: "Round" }), ...state.players.map((p, i) => el("th", { class: "n", text: playerName(p, i) })));
+    if (!state.rounds.length) {
+      $("rows").replaceChildren(el("tr", {}, [el("td", { class: "empty", colspan: String(state.players.length + 1), text: "No rounds yet. Enter the pips after the first round." })]));
+    } else {
+      let run = state.players.map(() => 0);
+      $("rows").replaceChildren(...state.rounds.map((r, k) => {
+        run = run.map((x, i) => x + roundScore(r, i));
+        return el("tr", {}, [
+          el("td", {}, [el("span", { class: "domino", style: { width: "44px", height: "24px", fontSize: ".8rem" } }, [el("span", { text: String(doubleFor(k)) }), el("span", { text: String(doubleFor(k)) })])]),
+          ...state.players.map((_, i) => el("td", { class: "n" }, [
+            r.pips[i] === 0 ? el("span", { class: "tag", text: "out" }) : String(roundScore(r, i)),
+            el("div", { class: "small muted", text: String(run[i]) })
+          ]))
+        ]);
+      }));
+    }
+    $("undo").disabled = !state.rounds.length || editing;
+    $("editLast").disabled = !state.rounds.length || editing;
+  }
+
+  function render() {
+    renderSetup();
+    renderStandings();
+    renderForm();
+    renderSheet();
+  }
+
+  $("roundForm").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const r = draftRound();
+    if (r.error) return;
+    if (editing) state.rounds[state.rounds.length - 1] = r.round;
+    else if (state.rounds.length < totalRounds()) state.rounds.push(r.round);
+    editing = false;
+    draft = freshDraft(); persist(); render();
+  });
+  $("dz").addEventListener("change", (e) => { state.doubleZero50 = e.target.checked; persist(); render(); });
+  $("undo").addEventListener("click", () => { state.rounds.pop(); persist(); render(); });
+  $("editLast").addEventListener("click", () => {
+    const last = state.rounds[state.rounds.length - 1];
+    if (!last) return;
+    editing = true;
+    draft = { pips: last.pips.map(String), dz: (last.dz || state.players.map(() => false)).slice() };
+    render();
+  });
+  $("cancelEdit").addEventListener("click", () => { editing = false; draft = freshDraft(); render(); });
+
+  render();
+})();
+</script>
+</body>
+</html>

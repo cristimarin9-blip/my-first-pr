@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Ticket to Ride Scores</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Young+Serif&family=Figtree:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="shared.css">
+<style>
+/* Layout: map + players, a standings strip, then one card per player with routes, tickets and bonuses. */
+:root { --accent: #2459b3; --accent-soft: #e0e8f6; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --accent: #7fa8f0; --accent-soft: #1a2638; } }
+:root[data-theme="dark"] { --accent: #7fa8f0; --accent-soft: #1a2638; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(310px, 1fr)); gap: 12px; }
+.pcard { background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; display: grid; gap: 12px; min-width: 0; }
+.pcard .head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.pcard .who { display: flex; align-items: center; gap: 8px; font-weight: 700; min-width: 0; overflow-wrap: anywhere; }
+.pcard .pts { font-family: var(--font-display); font-size: 2.1rem; line-height: 1; font-variant-numeric: tabular-nums; }
+.routes { display: grid; grid-template-columns: auto auto 1fr; gap: 6px 10px; align-items: center; }
+.train { display: inline-flex; gap: 2px; }
+.train i { width: 9px; height: 14px; border-radius: 2px; display: inline-block; }
+.routes .worth { font-size: .82rem; color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
+.tickets { display: flex; flex-wrap: wrap; gap: 6px; }
+.ticket { display: inline-flex; align-items: center; gap: 4px; border-radius: 6px; padding: 3px 4px 3px 8px; font-weight: 700; font-size: .85rem; font-variant-numeric: tabular-nums; }
+.ticket.ok { background: var(--accent-soft); color: var(--accent); }
+.ticket.fail { background: var(--red-soft); color: var(--red); }
+.ticket button { border: 0; background: transparent; color: inherit; padding: 0 4px; font-size: .95rem; }
+.addticket { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.breakdown { font-size: .84rem; color: var(--muted); margin: 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="top-left">
+      <a class="back" href="index.html">← All games</a>
+      <h1>Ticket to Ride</h1>
+    </div>
+    <span id="newGame"></span>
+  </header>
+
+  <section class="panel" aria-label="Setup">
+    <div class="row"><span class="label">Map</span><div class="seg" id="mapSeg"></div></div>
+    <div class="row" id="bonusRow"></div>
+    <div id="players" class="field"></div>
+  </section>
+
+  <div id="banner" class="banner" hidden></div>
+  <section class="cards" id="cards" aria-label="Players"></section>
+
+  <details class="rules">
+    <summary>Scoring rules</summary>
+    <div class="body">
+      <dl>
+        <dt>Route of 1 train</dt><dd>1</dd>
+        <dt>2 trains</dt><dd>2</dd>
+        <dt>3 trains</dt><dd>4</dd>
+        <dt>4 trains</dt><dd>7</dd>
+        <dt>5 trains</dt><dd>10</dd>
+        <dt>6 trains</dt><dd>15</dd>
+        <dt>7 trains</dt><dd>18</dd>
+        <dt>8 trains (Europe)</dt><dd>21</dd>
+        <dt>9 trains (Nordic)</dt><dd>27</dd>
+      </dl>
+      <p><b>Tickets:</b> a completed ticket adds its value, an unfinished one takes it away.</p>
+      <p><b>USA:</b> Longest Continuous Path is worth 10. USA 1910 can also use the Globetrotter, 15 points for the most completed tickets.</p>
+      <p><b>Europe:</b> each station you did not place is worth 4 points. The European Express (longest path) is worth 10.</p>
+      <p><b>Nordic Countries:</b> 40 trains each. The Globetrotter (most completed tickets) is worth 10; there is no longest path bonus.</p>
+      <p>Ties for a bonus give the full bonus to everyone tied.</p>
+    </div>
+  </details>
+</div>
+<script src="shared.js"></script>
+<script>
+(function () {
+  "use strict";
+  const { el, load, save, range, playerName, dot, stepper } = GS;
+  const KEY = "gs-ticket-to-ride-v1";
+  const $ = (id) => document.getElementById(id);
+  const ROUTE_POINTS = { 1: 1, 2: 2, 3: 4, 4: 7, 5: 10, 6: 15, 7: 18, 8: 21, 9: 27 };
+  const MAPS = {
+    usa:    { label: "USA",      lengths: 6, trains: 45, longest: 10, globe: 0,  stations: 0, players: [2, 5] },
+    usa1910:{ label: "USA 1910", lengths: 6, trains: 45, longest: 10, globe: 15, stations: 0, players: [2, 5] },
+    europe: { label: "Europe",   lengths: 8, trains: 45, longest: 10, globe: 0,  stations: 3, players: [2, 5] },
+    nordic: { label: "Nordic Countries", lengths: 9, trains: 40, longest: 0, globe: 10, stations: 0, players: [2, 3] }
+  };
+
+  function freshPlayer(i, map) {
+    return { name: "", color: i % GS.COLORS.length, routes: {}, tickets: [], stations: MAPS[map].stations, longest: false };
+  }
+  function freshState() {
+    return { map: "usa", useLongest: true, useGlobe: false, players: range(4).map((i) => freshPlayer(i, "usa")), started: false };
+  }
+  let state = load(KEY, null) || freshState();
+  const persist = () => save(KEY, state);
+  const map = () => MAPS[state.map];
+  const ticketDraft = state.players.map(() => "");
+
+  function score(p, i) {
+    const m = map();
+    let routes = 0, trains = 0;
+    for (let len = 1; len <= m.lengths; len++) {
+      const c = p.routes[len] || 0;
+      routes += c * ROUTE_POINTS[len];
+      trains += c * len;
+    }
+    const done = p.tickets.filter((t) => t.ok);
+    const tickets = p.tickets.reduce((s, t) => s + (t.ok ? t.v : -t.v), 0);
+    const stations = m.stations ? p.stations * 4 : 0;
+    const longest = state.useLongest && m.longest && p.longest ? m.longest : 0;
+    let globe = 0;
+    if (state.useGlobe && m.globe) {
+      const counts = state.players.map((q) => q.tickets.filter((t) => t.ok).length);
+      const best = Math.max(...counts);
+      if (best > 0 && counts[i] === best) globe = m.globe;
+    }
+    return { total: routes + tickets + stations + longest + globe, routes, trains, tickets, done: done.length, stations, longest, globe };
+  }
+
+  const setup = GS.playerSetup($("players"), {
+    id: "ttr", min: 2, max: 5,
+    onCount: (c) => {
+      while (state.players.length < c) state.players.push(freshPlayer(state.players.length, state.map));
+      state.players.length = c;
+      ticketDraft.length = 0; state.players.forEach(() => ticketDraft.push(""));
+      persist(); render();
+    },
+    onName: () => { persist(); render(); }
+  });
+
+  function change(fn) { fn(); state.started = true; persist(); render(); }
+
+  function render() {
+    const m = map();
+    $("mapSeg").replaceChildren(...Object.keys(MAPS).map((k) => el("button", {
+      type: "button", class: "chip", "aria-pressed": String(state.map === k), disabled: state.started,
+      onclick: () => {
+        state.map = k;
+        state.useLongest = !!MAPS[k].longest;
+        state.useGlobe = !!MAPS[k].globe;
+        state.players.forEach((p) => { p.stations = MAPS[k].stations; });
+        if (state.players.length > MAPS[k].players[1]) state.players.length = MAPS[k].players[1];
+        persist(); render();
+      }
+    }, [MAPS[k].label])));
+    const bonus = [];
+    if (m.longest) bonus.push(el("label", { class: "toggle", for: "useLongest" }, [
+      el("input", { type: "checkbox", id: "useLongest", checked: state.useLongest, onchange: (e) => { state.useLongest = e.target.checked; persist(); render(); } }),
+      (state.map === "europe" ? "European Express" : "Longest path") + " bonus (+" + m.longest + ")"]));
+    if (m.globe) bonus.push(el("label", { class: "toggle", for: "useGlobe" }, [
+      el("input", { type: "checkbox", id: "useGlobe", checked: state.useGlobe, onchange: (e) => { state.useGlobe = e.target.checked; persist(); render(); } }),
+      "Globetrotter bonus (+" + m.globe + ")"]));
+    $("bonusRow").replaceChildren(...bonus);
+    $("bonusRow").hidden = !bonus.length;
+    setup(state.players, state.started);
+    $("newGame").replaceChildren(GS.confirmButton("New game", "Clear every player's routes and tickets?", () => {
+      state.players = state.players.map((p, i) => Object.assign(freshPlayer(i, state.map), { name: p.name, color: p.color }));
+      state.started = false; persist(); render();
+    }));
+
+    const scores = state.players.map(score);
+    const best = Math.max(...scores.map((s) => s.total));
+    const banner = $("banner");
+    banner.hidden = !state.started;
+    if (state.started) {
+      const leaders = range(scores.length).filter((i) => scores[i].total === best).map((i) => playerName(state.players[i], i));
+      banner.replaceChildren(el("strong", { text: leaders.join(" and ") + (leaders.length > 1 ? " are tied at " : " leads with ") + best + " points" }),
+        el("span", { class: "small muted", text: "Ties go to the most completed tickets, then the longest path." }));
+    }
+
+    $("cards").replaceChildren(...state.players.map((p, i) => {
+      const s = scores[i];
+      const routeRows = [];
+      for (let len = 1; len <= m.lengths; len++) {
+        const c = p.routes[len] || 0;
+        routeRows.push(
+          el("span", { class: "train", title: len + " trains", "aria-hidden": "true" }, range(len).map(() => el("i", { style: { background: GS.COLORS[p.color].hex } }))),
+          stepper(c, (v) => change(() => { p.routes[len] = v; }), { label: "routes of " + len }),
+          el("span", { class: "worth", text: len + (len === 1 ? " train" : " trains") + " · " + ROUTE_POINTS[len] + " each" + (c ? " = " + c * ROUTE_POINTS[len] : "") })
+        );
+      }
+      const input = el("input", { class: "numin", id: "tv" + i, type: "number", inputmode: "numeric", min: "1", max: "30", placeholder: "value", value: ticketDraft[i], "aria-label": "Ticket value for " + playerName(p, i) });
+      input.addEventListener("input", () => { ticketDraft[i] = input.value; });
+      const addTicket = (ok) => {
+        const v = Number(ticketDraft[i]);
+        if (!Number.isInteger(v) || v < 1) { input.focus(); return; }
+        ticketDraft[i] = "";
+        change(() => { p.tickets.push({ v, ok }); });
+      };
+      const extras = [];
+      if (m.stations) extras.push(el("div", { class: "row" }, [el("span", { text: "Unused stations (4 each)" }), stepper(p.stations, (v) => change(() => { p.stations = v; }), { max: 3, label: "unused stations" })]));
+      if (m.longest && state.useLongest) extras.push(el("label", { class: "toggle", for: "lg" + i }, [
+        el("input", { type: "checkbox", id: "lg" + i, checked: p.longest, onchange: (e) => change(() => { p.longest = e.target.checked; }) }),
+        "Has the longest path (+" + m.longest + ")"]));
+      const over = s.trains > m.trains;
+      return el("article", { class: "pcard" }, [
+        el("div", { class: "head" }, [el("span", { class: "who" }, [dot(p.color), playerName(p, i)]), el("span", { class: "pts", text: String(s.total) })]),
+        el("div", { class: "field" }, [
+          el("div", { class: "row", style: { justifyContent: "space-between" } }, [
+            el("span", { class: "label", text: "Claimed routes" }),
+            el("span", { class: over ? "tag red" : "small muted", text: s.trains + " of " + m.trains + " trains used" })
+          ]),
+          el("div", { class: "routes" }, routeRows)
+        ]),
+        el("div", { class: "field" }, [
+          el("span", { class: "label", text: "Destination tickets" }),
+          el("div", { class: "addticket" }, [input,
+            el("button", { type: "button", class: "btn sm", text: "Completed", onclick: () => addTicket(true) }),
+            el("button", { type: "button", class: "btn sm danger", text: "Not completed", onclick: () => addTicket(false) })]),
+          el("div", { class: "tickets" }, p.tickets.length ? p.tickets.map((t, k) => el("span", { class: "ticket " + (t.ok ? "ok" : "fail") }, [
+            (t.ok ? "+" : "−") + t.v,
+            el("button", { type: "button", text: "×", "aria-label": "Remove ticket", onclick: () => change(() => { p.tickets.splice(k, 1); }) })
+          ])) : [el("span", { class: "small muted", text: "No tickets yet" })])
+        ]),
+        extras.length ? el("div", { class: "field" }, extras) : null,
+        el("p", { class: "breakdown", text: [
+          "Routes " + s.routes, "Tickets " + (s.tickets >= 0 ? "+" : "") + s.tickets + " (" + s.done + " done)",
+          m.stations ? "Stations " + s.stations : "", s.longest ? "Longest path " + s.longest : "", s.globe ? "Globetrotter " + s.globe : ""
+        ].filter(Boolean).join(" · ") })
+      ]);
+    }));
+  }
+
+  render();
+})();
+</script>
+</body>
+</html>
